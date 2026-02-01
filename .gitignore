@@ -1,0 +1,8 @@
+# Binaries
+**/bin/
+
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.out
