@@ -43,6 +43,74 @@ __global__ void transpose(float *odata, const float *idata, int width, int heigh
     }
 }
 
+// CUDA kernel for matrix transpose (Vectorized)
+__global__ void transpose_vectorized(float *odata, const float *idata, int width, int height)
+{
+    // Pad shared memory to avoid bank conflicts
+    __shared__ float tile[TILE_DIM][TILE_DIM + 1];
+
+    // Calculate global indices
+    // threadIdx.x operates on 4 columns at a time (vectorized)
+    int x = blockIdx.x * TILE_DIM + threadIdx.x * 4;
+    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    if (x + 3 < width && y < height)
+    {
+        // Vectorized load from global memory
+        float4 v = reinterpret_cast<const float4*>(&idata[y * width + x])[0];
+        
+        // Store to shared memory (cannot vector store due to padding/stride)
+        tile[threadIdx.y][threadIdx.x * 4 + 0] = v.x;
+        tile[threadIdx.y][threadIdx.x * 4 + 1] = v.y;
+        tile[threadIdx.y][threadIdx.x * 4 + 2] = v.z;
+        tile[threadIdx.y][threadIdx.x * 4 + 3] = v.w;
+    }
+    // Handle edges if width is not multiple of 4 (optional fallback)
+    else if (x < width && y < height)
+    {
+         for (int k = 0; k < 4 && (x + k) < width; ++k)
+            tile[threadIdx.y][threadIdx.x * 4 + k] = idata[y * width + x + k];
+    }
+
+    __syncthreads();
+
+    // Transpose indices
+    // Input x becomes output y, Input y becomes output x
+    x = blockIdx.y * TILE_DIM + threadIdx.x * 4;
+    y = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    if (x + 3 < height && y < width)
+    {
+        // Read from shared memory (transposed)
+        // We need 4 values that form a contiguous float4 in output
+        // Output row y corresponds to Input col y
+        // Output cols x..x+3 correspond to Input rows x..x+3
+        // So we need tile[x][y], tile[x+1][y]...
+        // Note: 'y' here is the original 'x' index inside the tile (0..31)
+        // 'x' here includes block offset, so we need local part
+        
+        int local_x = threadIdx.x * 4; // 0, 4, 8...
+        int local_y = threadIdx.y;     // 0..31
+
+        float v0 = tile[local_x + 0][local_y];
+        float v1 = tile[local_x + 1][local_y];
+        float v2 = tile[local_x + 2][local_y];
+        float v3 = tile[local_x + 3][local_y];
+
+        // Vectorized store to global memory
+        reinterpret_cast<float4*>(&odata[y * height + x])[0] = make_float4(v0, v1, v2, v3);
+    }
+    else if (x < height && y < width)
+    {
+        // Edge case fallback
+         int local_x = threadIdx.x * 4;
+         int local_y = threadIdx.y;
+         
+         for (int k = 0; k < 4 && (x + k) < height; ++k)
+            odata[y * height + x + k] = tile[local_x + k][local_y];
+    }
+}
+
 // CUDA kernel for matrix transpose (CuTe)
 template <typename T, int TileM, int TileN>
 __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n)
@@ -206,12 +274,23 @@ int main(int argc, char **argv)
         transpose<<<dimGrid, dimBlock>>>(d_odata, d_idata, width, height); 
     };
 
+    // Vectorized Kernel Launch Configuration
+    // We use TILE_DIM/4 threads in X because each thread processes 4 elements
+    // We use TILE_DIM threads in Y to cover the full tile height without looping
+    dim3 dimBlockVectorized(TILE_DIM / 4, TILE_DIM, 1);
+    auto vectorized_op = [&]() {
+        transpose_vectorized<<<dimGrid, dimBlockVectorized>>>(d_odata, d_idata, width, height);
+    };
+
     // Run Benchmarks
     // 1. CuTe Kernel
     run_benchmark("CuTe Kernel", cute_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
 
     // 2. Basic Kernel
     run_benchmark("Basic Kernel", basic_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
+
+    // 3. Vectorized Kernel
+    run_benchmark("Vectorized Kernel", vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
 
     // Free resources
     cudaFree(d_idata);
