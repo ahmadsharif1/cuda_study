@@ -5,7 +5,7 @@
 NVCC = nvcc
 
 # Compiler flags
-CUTLASS_PATH = /home/ahmad/cuda/cutlass
+CUTLASS_PATH = ./cutlass
 NVCC_FLAGS = -O3 -I$(CUTLASS_PATH)/include -I$(CUTLASS_PATH)/tools/util/include -arch=sm_70 -std=c++17
 
 # Target executable
