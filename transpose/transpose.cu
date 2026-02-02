@@ -112,8 +112,9 @@ __global__ void transpose_vectorized(float *odata, const float *idata, int width
 }
 
 // CUDA kernel for matrix transpose (CuTe)
-template <typename T, int TileM, int TileN>
-__global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n)
+template <typename TiledCopyIn, typename TiledCopyOut, typename T, int TileM, int TileN>
+__global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n, 
+                                      TiledCopyIn tiled_copy_in, TiledCopyOut tiled_copy_out)
 {
     // Define the global layouts for input (Row Major) and output (Col Major)
     auto g_layout_in  = make_layout(make_shape(m, n), GenRowMajor{});
@@ -129,24 +130,43 @@ __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n)
     auto g_tile_out = local_tile(g_out, tile_shape, make_coord(blockIdx.y, blockIdx.x));
 
     // Shared memory tile and layout
-    __shared__ T smem_data[TileM * TileN];
+    __shared__ alignas(16) T smem_data[TileM * TileN];
     auto s_layout = make_layout(tile_shape, GenRowMajor{});
     auto s_tile   = make_tensor(make_smem_ptr(smem_data), s_layout);
 
-    // Thread partitioning
-    auto thr_layout = make_layout(make_shape(Int<BLOCK_ROWS>{}, Int<TILE_DIM>{}));
-    auto t_g_in  = local_partition(g_tile_in,  thr_layout, threadIdx.x + threadIdx.y * TILE_DIM);
-    auto t_s_in  = local_partition(s_tile,     thr_layout, threadIdx.x + threadIdx.y * TILE_DIM);
+    // -----------------------------------------------------------------
+    // Phase 1: Global (RowMajor) -> Shared (RowMajor)
+    // -----------------------------------------------------------------
+    auto thr_copy_in = tiled_copy_in.get_thread_slice(threadIdx.x + threadIdx.y * TILE_DIM);
+
+    // Partition Global and Shared memory for Loading
+    auto t_g_in = thr_copy_in.partition_S(g_tile_in);
+    auto t_s_in = thr_copy_in.partition_D(s_tile);
 
     // Load from GMEM to SMEM
-    copy(t_g_in, t_s_in);
+    // Use an intermediate register fragment to allow type adaptation if needed
+    // (e.g. vector load -> register -> scalar store to smem, or vice versa)
+    auto t_r_in = make_fragment_like(t_s_in);
+    
+    copy(tiled_copy_in, t_g_in, t_r_in);
+    copy(tiled_copy_in, t_r_in, t_s_in);
+    
     __syncthreads();
 
-    // Now copy from SMEM to GMEM
-    auto t_s_out = local_partition(s_tile,    thr_layout, threadIdx.x + threadIdx.y * TILE_DIM);
-    auto t_g_out = local_partition(g_tile_out, thr_layout, threadIdx.x + threadIdx.y * TILE_DIM);
+    // -----------------------------------------------------------------
+    // Phase 2: Shared (RowMajor) -> Global (ColMajor)
+    // -----------------------------------------------------------------
+    auto thr_copy_out = tiled_copy_out.get_thread_slice(threadIdx.x + threadIdx.y * TILE_DIM);
 
-    copy(t_s_out, t_g_out);
+    // Partition Shared and Global memory for Storing
+    auto t_s_out = thr_copy_out.partition_S(s_tile);
+    auto t_g_out = thr_copy_out.partition_D(g_tile_out);
+
+    // Copy from SMEM to GMEM
+    auto t_r_out = make_fragment_like(t_g_out);
+
+    copy(tiled_copy_out, t_s_out, t_r_out);
+    copy(tiled_copy_out, t_r_out, t_g_out);
 }
 
 // -------------------------------------------------------------------------
@@ -267,7 +287,39 @@ int main(int argc, char **argv)
 
     // Define kernel lambdas
     auto cute_op = [&]() { 
-        transpose_cute_kernel<float, TILE_DIM, TILE_DIM><<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width); 
+        using T = float;
+        // Thread Layouts
+        // In: RowMajor (Matches Input GMEM). Map tid -> (r, c). Stride (8, 1).
+        using ThreadLayoutIn = Layout<Shape<Int<32>, Int<8>>, Stride<Int<8>, _1>>;
+        
+        // Out: ColMajor (Matches Output GMEM). Map tid -> (r, c). Stride (1, 8).
+        using ThreadLayoutOut = Layout<Shape<Int<8>, Int<32>>, Stride<_1, Int<8>>>;
+
+        using CopyOp = UniversalCopy<T>; // Scalar
+        using CopyAtom = Copy_Atom<CopyOp, T>;
+        
+        auto scalar_copy_in = make_tiled_copy(CopyAtom{}, ThreadLayoutIn{});
+        auto scalar_copy_out = make_tiled_copy(CopyAtom{}, ThreadLayoutOut{});
+
+        transpose_cute_kernel<decltype(scalar_copy_in), decltype(scalar_copy_out), T, TILE_DIM, TILE_DIM>
+            <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, scalar_copy_in, scalar_copy_out); 
+    };
+
+    auto cute_vectorized_op = [&]() {
+        using T = float;
+        
+        // Input: RowMajor Threads (32, 8). Atom (1, 4).
+        using ThreadLayoutIn = Layout<Shape<Int<32>, Int<8>>, Stride<Int<8>, _1>>;
+        using CopyAtomIn = Copy_Atom<UniversalCopy<float4>, T>; 
+        auto vector_copy_in = make_tiled_copy(CopyAtomIn{}, ThreadLayoutIn{}, Layout<Shape<_1, Int<4>>>{});
+        
+        // Output: ColMajor Threads (8, 32). Atom (4, 1).
+        using ThreadLayoutOut = Layout<Shape<Int<8>, Int<32>>, Stride<_1, Int<8>>>;
+        using CopyAtomOut = Copy_Atom<AutoVectorizingCopy, T>; 
+        auto vector_copy_out = make_tiled_copy(CopyAtomOut{}, ThreadLayoutOut{}, Layout<Shape<Int<4>, _1>>{});
+
+        transpose_cute_kernel<decltype(vector_copy_in), decltype(vector_copy_out), T, TILE_DIM, TILE_DIM>
+            <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, vector_copy_in, vector_copy_out); 
     };
 
     auto basic_op = [&]() { 
@@ -286,10 +338,13 @@ int main(int argc, char **argv)
     // 1. CuTe Kernel
     run_benchmark("CuTe Kernel", cute_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
 
-    // 2. Basic Kernel
+    // 2. CuTe Vectorized
+    run_benchmark("CuTe Vectorized", cute_vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
+
+    // 3. Basic Kernel
     run_benchmark("Basic Kernel", basic_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
 
-    // 3. Vectorized Kernel
+    // 4. Vectorized Kernel
     run_benchmark("Vectorized Kernel", vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
 
     // Free resources
