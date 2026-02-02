@@ -148,6 +148,8 @@ __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n,
     // (e.g. vector load -> register -> scalar store to smem, or vice versa)
     auto t_r_in = make_fragment_like(t_s_in);
     
+    // For vectorized copies, this is actually needed.
+    // TODO: Investigate why.
     copy(tiled_copy_in, t_g_in, t_r_in);
     copy(tiled_copy_in, t_r_in, t_s_in);
     
@@ -165,6 +167,8 @@ __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n,
     // Copy from SMEM to GMEM
     auto t_r_out = make_fragment_like(t_g_out);
 
+    // For vectorized copies, this is actually needed.
+    // TODO: Investigate why.
     copy(tiled_copy_out, t_s_out, t_r_out);
     copy(tiled_copy_out, t_r_out, t_g_out);
 }
