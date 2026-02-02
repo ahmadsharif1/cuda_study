@@ -112,7 +112,7 @@ __global__ void transpose_vectorized(float *odata, const float *idata, int width
 }
 
 // CUDA kernel for matrix transpose (CuTe)
-template <typename TiledCopyIn, typename TiledCopyOut, typename T, int TileM, int TileN>
+template <int PadN, typename TiledCopyIn, typename TiledCopyOut, typename T, int TileM, int TileN>
 __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n, 
                                       TiledCopyIn tiled_copy_in, TiledCopyOut tiled_copy_out)
 {
@@ -130,8 +130,10 @@ __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n,
     auto g_tile_out = local_tile(g_out, tile_shape, make_coord(blockIdx.y, blockIdx.x));
 
     // Shared memory tile and layout
-    __shared__ alignas(16) T smem_data[TileM * TileN];
-    auto s_layout = make_layout(tile_shape, GenRowMajor{});
+    // Pad the shared memory stride to avoid bank conflicts (Stride = TileN + PadN)
+    // PadN=1 for Scalar (conflicts resolution), PadN=4 for Vector (alignment + conflicts)
+    __shared__ alignas(16) T smem_data[TileM * (TileN + PadN)];
+    auto s_layout = make_layout(tile_shape, make_stride(Int<TileN>{} + Int<PadN>{}, Int<1>{}));
     auto s_tile   = make_tensor(make_smem_ptr(smem_data), s_layout);
 
     // -----------------------------------------------------------------
@@ -320,7 +322,7 @@ int main(int argc, char **argv)
         auto scalar_copy_in = make_tiled_copy(CopyAtom{}, ThreadLayoutIn{});
         auto scalar_copy_out = make_tiled_copy(CopyAtom{}, ThreadLayoutOut{});
 
-        transpose_cute_kernel<decltype(scalar_copy_in), decltype(scalar_copy_out), T, TILE_DIM, TILE_DIM>
+        transpose_cute_kernel<1, decltype(scalar_copy_in), decltype(scalar_copy_out), T, TILE_DIM, TILE_DIM>
             <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, scalar_copy_in, scalar_copy_out); 
     };
 
@@ -337,7 +339,7 @@ int main(int argc, char **argv)
         using CopyAtomOut = Copy_Atom<AutoVectorizingCopy, T>; 
         auto vector_copy_out = make_tiled_copy(CopyAtomOut{}, ThreadLayoutOut{}, Layout<Shape<Int<4>, _1>>{});
 
-        transpose_cute_kernel<decltype(vector_copy_in), decltype(vector_copy_out), T, TILE_DIM, TILE_DIM>
+        transpose_cute_kernel<4, decltype(vector_copy_in), decltype(vector_copy_out), T, TILE_DIM, TILE_DIM>
             <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, vector_copy_in, vector_copy_out); 
     };
 
