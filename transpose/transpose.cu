@@ -188,9 +188,16 @@ template <typename Func>
 void run_benchmark(const char* name, Func kernel_launch, 
                    float* d_idata, float* d_odata, 
                    float* h_idata, float* h_odata, 
-                   int width, int height, int iterations) {
+                   int width, int height, int iterations, bool benchmark_mode) {
     
     int size = width * height * sizeof(float);
+    
+    if (!benchmark_mode) {
+        // Profiling mode: Run once, no warmup, no timing, no verification output
+        kernel_launch();
+        check_cuda(cudaDeviceSynchronize(), "Profiling Kernel Launch");
+        return;
+    }
     
     // Warmup
     kernel_launch();
@@ -252,17 +259,25 @@ void run_benchmark(const char* name, Func kernel_launch,
 int main(int argc, char **argv)
 {
     // Parse command line arguments
-    int iterations = 1;
+    int iterations = 100;
+    bool benchmark_mode = false;
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--iterations") == 0) {
             if (i + 1 < argc) {
                 iterations = atoi(argv[i + 1]);
                 i++;
             }
+        } else if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--benchmark") == 0) {
+            benchmark_mode = true;
         }
     }
     
-    printf("Running with %d iteration(s) (after 1 warmup).\n", iterations);
+    if (benchmark_mode) {
+        printf("Running in BENCHMARK mode with %d iteration(s).\n", iterations);
+    } else {
+        printf("Running in PROFILING mode (1 iteration, no warmup, no verification).\n");
+    }
 
     int width = 2048, height = 2048;
     int size = width * height * sizeof(float);
@@ -340,16 +355,16 @@ int main(int argc, char **argv)
 
     // Run Benchmarks
     // 1. CuTe Kernel
-    run_benchmark("CuTe Kernel", cute_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
+    run_benchmark("CuTe Kernel", cute_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations, benchmark_mode);
 
     // 2. CuTe Vectorized
-    run_benchmark("CuTe Vectorized", cute_vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
+    run_benchmark("CuTe Vectorized", cute_vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations, benchmark_mode);
 
     // 3. Basic Kernel
-    run_benchmark("Basic Kernel", basic_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
+    run_benchmark("Basic Kernel", basic_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations, benchmark_mode);
 
     // 4. Vectorized Kernel
-    run_benchmark("Vectorized Kernel", vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations);
+    run_benchmark("Vectorized Kernel", vectorized_op, d_idata, d_odata, h_idata, h_odata, width, height, iterations, benchmark_mode);
 
     // Free resources
     cudaFree(d_idata);
