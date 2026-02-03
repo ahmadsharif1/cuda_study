@@ -4,9 +4,13 @@
 # Compiler
 NVCC = nvcc
 
+# GPU architecture: override via command line (make CUDA_ARCH=sm_80) or environment variable
+# Defaults to native (auto-detect host GPU)
+CUDA_ARCH ?= native
+
 # Compiler flags
 CUTLASS_PATH = ../cutlass
-NVCC_FLAGS = -O3 -I$(CUTLASS_PATH)/include -I$(CUTLASS_PATH)/tools/util/include -arch=sm_70 -std=c++17
+NVCC_FLAGS = -g -O3 -I$(CUTLASS_PATH)/include -I$(CUTLASS_PATH)/tools/util/include -arch=$(CUDA_ARCH) -std=c++17
 
 # Directories
 BIN_DIR = bin

@@ -14,12 +14,12 @@ using namespace cute;
 // -------------------------------------------------------------------------
 
 // CUDA kernel for matrix transpose (Basic)
-__global__ void transpose(float *odata, const float *idata, int width, int height)
+__global__ void transpose(float *odata, const float *idata, size_t width, size_t height)
 {
     __shared__ float tile[TILE_DIM][TILE_DIM];
 
-    int x = blockIdx.x * TILE_DIM + threadIdx.x;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+    size_t x = blockIdx.x * TILE_DIM + threadIdx.x;
+    size_t y = blockIdx.y * TILE_DIM + threadIdx.y;
 
     for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
     {
@@ -44,21 +44,21 @@ __global__ void transpose(float *odata, const float *idata, int width, int heigh
 }
 
 // CUDA kernel for matrix transpose (Vectorized)
-__global__ void transpose_vectorized(float *odata, const float *idata, int width, int height)
+__global__ void transpose_vectorized(float *odata, const float *idata, size_t width, size_t height)
 {
     // Pad shared memory to avoid bank conflicts
     __shared__ float tile[TILE_DIM][TILE_DIM + 1];
 
     // Calculate global indices
     // threadIdx.x operates on 4 columns at a time (vectorized)
-    int x = blockIdx.x * TILE_DIM + threadIdx.x * 4;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
+    size_t x = blockIdx.x * TILE_DIM + threadIdx.x * 4;
+    size_t y = blockIdx.y * TILE_DIM + threadIdx.y;
 
     if (x + 3 < width && y < height)
     {
         // Vectorized load from global memory
         float4 v = reinterpret_cast<const float4*>(&idata[y * width + x])[0];
-        
+
         // Store to shared memory (cannot vector store due to padding/stride)
         tile[threadIdx.y][threadIdx.x * 4 + 0] = v.x;
         tile[threadIdx.y][threadIdx.x * 4 + 1] = v.y;
@@ -88,7 +88,7 @@ __global__ void transpose_vectorized(float *odata, const float *idata, int width
         // So we need tile[x][y], tile[x+1][y]...
         // Note: 'y' here is the original 'x' index inside the tile (0..31)
         // 'x' here includes block offset, so we need local part
-        
+
         int local_x = threadIdx.x * 4; // 0, 4, 8...
         int local_y = threadIdx.y;     // 0..31
 
@@ -105,7 +105,7 @@ __global__ void transpose_vectorized(float *odata, const float *idata, int width
         // Edge case fallback
          int local_x = threadIdx.x * 4;
          int local_y = threadIdx.y;
-         
+
          for (int k = 0; k < 4 && (x + k) < height; ++k)
             odata[y * height + x + k] = tile[local_x + k][local_y];
     }
@@ -113,7 +113,7 @@ __global__ void transpose_vectorized(float *odata, const float *idata, int width
 
 // CUDA kernel for matrix transpose (CuTe)
 template <int PadN, typename TiledCopyIn, typename TiledCopyOut, typename T, int TileM, int TileN>
-__global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n, 
+__global__ void transpose_cute_kernel(T* odata, const T* idata, size_t m, size_t n,
                                       TiledCopyIn tiled_copy_in, TiledCopyOut tiled_copy_out)
 {
     // Define the global layouts for input (Row Major) and output (Col Major)
@@ -149,12 +149,12 @@ __global__ void transpose_cute_kernel(T* odata, const T* idata, int m, int n,
     // Use an intermediate register fragment to allow type adaptation if needed
     // (e.g. vector load -> register -> scalar store to smem, or vice versa)
     auto t_r_in = make_fragment_like(t_s_in);
-    
+
     // For vectorized copies, this is actually needed.
     // TODO: Investigate why.
     copy(tiled_copy_in, t_g_in, t_r_in);
     copy(tiled_copy_in, t_r_in, t_s_in);
-    
+
     __syncthreads();
 
     // -----------------------------------------------------------------
@@ -187,69 +187,70 @@ void check_cuda(cudaError_t result, const char *func) {
 }
 
 template <typename Func>
-void run_benchmark(const char* name, Func kernel_launch, 
-                   float* d_idata, float* d_odata, 
-                   float* h_idata, float* h_odata, 
-                   int width, int height, int iterations, bool benchmark_mode) {
-    
-    int size = width * height * sizeof(float);
-    
+void run_benchmark(const char* name, Func kernel_launch,
+                   float* d_idata, float* d_odata,
+                   float* h_idata, float* h_odata,
+                   size_t width, size_t height, int iterations, bool benchmark_mode) {
+
+    size_t num_elements = width * height;
+    size_t size_bytes = num_elements * sizeof(float);
+
     if (!benchmark_mode) {
         // Profiling mode: Run once, no warmup, no timing, no verification output
         kernel_launch();
         check_cuda(cudaDeviceSynchronize(), "Profiling Kernel Launch");
         return;
     }
-    
+
     // Warmup
     kernel_launch();
     check_cuda(cudaDeviceSynchronize(), "Warmup Kernel Launch");
-    
+
     // Timing
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    
+
     // Reset output memory before timing run (optional, but clean)
-    cudaMemset(d_odata, 0, size);
-    
+    cudaMemset(d_odata, 0, size_bytes);
+
     cudaEventRecord(start, 0);
-    for(int i = 0; i < iterations; ++i) {
+    for (int i = 0; i < iterations; ++i) {
         kernel_launch();
     }
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
-    
+
     float milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, start, stop);
     float avg_time = milliseconds / iterations;
-    
+
     // Verify results
     // Note: We verify the state after the last iteration
-    cudaMemcpy(h_odata, d_odata, size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_odata, d_odata, size_bytes, cudaMemcpyDeviceToHost);
     bool success = true;
-    for (int i = 0; i < height; i++) {
-        for (int j = 0; j < width; j++) {
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
             if (h_odata[j * height + i] != h_idata[i * width + j]) {
                 success = false;
                 // Print first failure for debugging
-                // printf("Mismatch at (%d, %d): expected %f, got %f\n", i, j, h_idata[i * width + j], h_odata[j * height + i]); 
+                // printf("Mismatch at (%zu, %zu): expected %f, got %f\n", i, j, h_idata[i * width + j], h_odata[j * height + i]);
                 break;
             }
         }
         if (!success) break;
     }
-    
+
     // Report
     printf("----------------------------------------------------------------\n");
     printf("%-20s\n", name);
     printf("  Verification : %s\n", success ? "PASS" : "FAIL");
-    
-    float bandwidth = 2.0f * size / (avg_time / 1000.0f) / 1.0e9f;
+
+    double bandwidth = 2.0 * size_bytes / (avg_time / 1000.0) / 1.0e9;
     printf("  Bandwidth    : %.2f GB/s\n", bandwidth);
     printf("  Avg Time     : %.4f ms\n", avg_time);
     printf("----------------------------------------------------------------\n");
-    
+
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 }
@@ -274,77 +275,84 @@ int main(int argc, char **argv)
             benchmark_mode = true;
         }
     }
-    
+
     if (benchmark_mode) {
         printf("Running in BENCHMARK mode with %d iteration(s).\n", iterations);
     } else {
         printf("Running in PROFILING mode (1 iteration, no warmup, no verification).\n");
     }
 
-    int width = 2048, height = 2048;
-    int size = width * height * sizeof(float);
+    constexpr size_t width = 32768;
+    constexpr size_t height = 32768;
+    constexpr size_t num_elements = width * height;
+    constexpr size_t size_bytes = num_elements * sizeof(float);
 
     // Allocate host memory
-    float *h_idata = (float *)malloc(size);
-    float *h_odata = (float *)malloc(size);
+    float *h_idata = static_cast<float*>(malloc(size_bytes));
+    float *h_odata = static_cast<float*>(malloc(size_bytes));
+
+    if (!h_idata || !h_odata) {
+        fprintf(stderr, "Failed to allocate host memory\n");
+        exit(1);
+    }
 
     // Initialize host data
-    for (int i = 0; i < width * height; i++)
+    for (size_t i = 0; i < num_elements; i++)
     {
-        h_idata[i] = (float)i;
+        h_idata[i] = static_cast<float>(i);
     }
 
     // Allocate device memory
     float *d_idata, *d_odata;
-    check_cuda(cudaMalloc((void **)&d_idata, size), "cudaMalloc d_idata");
-    check_cuda(cudaMalloc((void **)&d_odata, size), "cudaMalloc d_odata");
+    check_cuda(cudaMalloc(&d_idata, size_bytes), "cudaMalloc d_idata");
+    check_cuda(cudaMalloc(&d_odata, size_bytes), "cudaMalloc d_odata");
 
     // Copy data from host to device
-    check_cuda(cudaMemcpy(d_idata, h_idata, size, cudaMemcpyHostToDevice), "cudaMemcpy HostToDevice");
+    check_cuda(cudaMemcpy(d_idata, h_idata, size_bytes, cudaMemcpyHostToDevice), "cudaMemcpy HostToDevice");
 
     // Define grid and block dimensions
     dim3 dimGrid((width + TILE_DIM - 1) / TILE_DIM, (height + TILE_DIM - 1) / TILE_DIM, 1);
     dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
 
     // Define kernel lambdas
-    auto cute_op = [&]() { 
+    auto cute_op = [&]() {
         using T = float;
         // Thread Layouts
         // In: RowMajor (Matches Input GMEM). Map tid -> (r, c). Stride (8, 1).
         using ThreadLayoutIn = Layout<Shape<Int<32>, Int<8>>, Stride<Int<8>, _1>>;
-        
+
         // Out: ColMajor (Matches Output GMEM). Map tid -> (r, c). Stride (1, 8).
         using ThreadLayoutOut = Layout<Shape<Int<8>, Int<32>>, Stride<_1, Int<8>>>;
 
         using CopyOp = UniversalCopy<T>; // Scalar
         using CopyAtom = Copy_Atom<CopyOp, T>;
-        
+
         auto scalar_copy_in = make_tiled_copy(CopyAtom{}, ThreadLayoutIn{});
         auto scalar_copy_out = make_tiled_copy(CopyAtom{}, ThreadLayoutOut{});
 
         transpose_cute_kernel<1, decltype(scalar_copy_in), decltype(scalar_copy_out), T, TILE_DIM, TILE_DIM>
-            <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, scalar_copy_in, scalar_copy_out); 
+            <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, scalar_copy_in, scalar_copy_out);
     };
 
     auto cute_vectorized_op = [&]() {
         using T = float;
-        
+
         // Input: RowMajor Threads (32, 8). Atom (1, 4).
         using ThreadLayoutIn = Layout<Shape<Int<32>, Int<8>>, Stride<Int<8>, _1>>;
-        using CopyAtomIn = Copy_Atom<UniversalCopy<float4>, T>; 
+        using CopyAtomIn = Copy_Atom<UniversalCopy<float4>, T>;
         auto vector_copy_in = make_tiled_copy(CopyAtomIn{}, ThreadLayoutIn{}, Layout<Shape<_1, Int<4>>>{});
-        
+
         // Output: ColMajor Threads (8, 32). Atom (4, 1).
         using ThreadLayoutOut = Layout<Shape<Int<8>, Int<32>>, Stride<_1, Int<8>>>;
-        using CopyAtomOut = Copy_Atom<AutoVectorizingCopy, T>; 
+        using CopyAtomOut = Copy_Atom<AutoVectorizingCopy, T>;
         auto vector_copy_out = make_tiled_copy(CopyAtomOut{}, ThreadLayoutOut{}, Layout<Shape<Int<4>, _1>>{});
 
         transpose_cute_kernel<4, decltype(vector_copy_in), decltype(vector_copy_out), T, TILE_DIM, TILE_DIM>
-            <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, vector_copy_in, vector_copy_out); 
+            <<<dimGrid, dimBlock>>>(d_odata, d_idata, height, width, vector_copy_in, vector_copy_out);
     };
 
-    auto basic_op = [&]() { 
-        transpose<<<dimGrid, dimBlock>>>(d_odata, d_idata, width, height); 
+    auto basic_op = [&]() {
+        transpose<<<dimGrid, dimBlock>>>(d_odata, d_idata, width, height);
     };
 
     // Vectorized Kernel Launch Configuration
