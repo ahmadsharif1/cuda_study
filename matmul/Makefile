@@ -9,7 +9,8 @@ NVCC = nvcc
 CUDA_ARCH ?= native
 
 # Compiler flags
-NVCC_FLAGS = -g -O3 -arch=$(CUDA_ARCH) -lcublas
+CUTLASS_PATH = ../cutlass
+NVCC_FLAGS = -g -O3 -I$(CUTLASS_PATH)/include -I$(CUTLASS_PATH)/tools/util/include -arch=$(CUDA_ARCH) -std=c++17 -lcublas
 
 # Directories
 BIN_DIR = bin

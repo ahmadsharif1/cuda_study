@@ -3,6 +3,10 @@
 #include <cstring>
 #include <cmath>
 #include <cublas_v2.h>
+#include <cute/tensor.hpp>
+#include <cute/algorithm/gemm.hpp>
+
+using namespace cute;
 
 // -------------------------------------------------------------------------
 // Kernel Implementations
@@ -19,6 +23,48 @@ __global__ void matmul_naive(const float* A, const float* B, float* C, int M, in
         sum += A[row * K + i] * B[i * N + col];
     }
     C[row * N + col] = sum;
+}
+
+// CuTe MMA kernel: global memory -> registers -> MMA (no shared memory)
+// Follows the CuTe GEMM tutorial pattern (sgemm_1).
+template <int BLK_M, int BLK_N, int BLK_K, class TiledMMA>
+__global__ void matmul_cute_simple(const float* A_ptr, const float* B_ptr, float* C_ptr,
+                                    int M, int K, int N, TiledMMA tiled_mma) {
+    // Global memory tensors
+    // A: (M, K) row-major
+    auto mA = make_tensor(make_gmem_ptr(A_ptr), make_shape(M, K), make_stride(K, Int<1>{}));
+    // B: stored (K,N) row-major, viewed as (N,K) for the TN MMA
+    auto mB = make_tensor(make_gmem_ptr(B_ptr), make_shape(N, K), make_stride(Int<1>{}, N));
+    // C: (M, N) row-major
+    auto mC = make_tensor(make_gmem_ptr(C_ptr), make_shape(M, N), make_stride(N, Int<1>{}));
+
+    // CTA tiling: blockIdx.x -> M, blockIdx.y -> N
+    auto gA = local_tile(mA, make_shape(Int<BLK_M>{}, Int<BLK_K>{}),
+                          make_coord(blockIdx.x, _));              // (BLK_M, BLK_K, k)
+    auto gB = local_tile(mB, make_shape(Int<BLK_N>{}, Int<BLK_K>{}),
+                          make_coord(blockIdx.y, _));              // (BLK_N, BLK_K, k)
+    auto gC = local_tile(mC, make_shape(Int<BLK_M>{}, Int<BLK_N>{}),
+                          make_coord(blockIdx.x, blockIdx.y));     // (BLK_M, BLK_N)
+
+    // Per-thread MMA partitions
+    auto thr_mma = tiled_mma.get_thread_slice(threadIdx.x);
+    auto tCgC = thr_mma.partition_C(gC);                           // (MMA, MMA_M, MMA_N)
+    auto tCrC = thr_mma.partition_fragment_C(gC);                  // accumulator in registers
+    clear(tCrC);
+
+    auto tCrA = thr_mma.partition_fragment_A(gA(_, _, 0));         // A fragment in registers
+    auto tCrB = thr_mma.partition_fragment_B(gB(_, _, 0));         // B fragment in registers
+
+    // Main loop over K
+    int k_tile_max = size<2>(gA);
+    for (int k = 0; k < k_tile_max; k++) {
+        copy(thr_mma.partition_A(gA(_, _, k)), tCrA);
+        copy(thr_mma.partition_B(gB(_, _, k)), tCrB);
+        gemm(tiled_mma, tCrA, tCrB, tCrC);
+    }
+
+    // Store result
+    copy(tCrC, tCgC);
 }
 
 // -------------------------------------------------------------------------
@@ -175,6 +221,27 @@ int main(int argc, char** argv) {
 
     // Run
     run_benchmark("Naive", naive_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+
+    // CuTe simple MMA kernel (TF32, no shared memory)
+    {
+        using tiled_mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>   // 4 warps = 128 threads
+        >;
+
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
+        tiled_mma_t tiled_mma;
+
+        dim3 block_cute(size(tiled_mma));
+        dim3 grid_cute(M / BLK_M, N / BLK_N);
+
+        auto cute_op = [&]() {
+            matmul_cute_simple<BLK_M, BLK_N, BLK_K>
+                <<<grid_cute, block_cute>>>(d_A, d_B, d_C, M, K, N, tiled_mma);
+        };
+
+        run_benchmark("CuTe Simple MMA", cute_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
 
     // cuBLAS
     // cuBLAS is column-major, so we compute C = A*B in row-major as:
