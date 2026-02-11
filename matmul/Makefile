@@ -9,7 +9,7 @@ NVCC = nvcc
 CUDA_ARCH ?= native
 
 # Compiler flags
-NVCC_FLAGS = -g -O3 -arch=$(CUDA_ARCH)
+NVCC_FLAGS = -g -O3 -arch=$(CUDA_ARCH) -lcublas
 
 # Directories
 BIN_DIR = bin

@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <cublas_v2.h>
 
 // -------------------------------------------------------------------------
 // Kernel Implementations
@@ -176,6 +177,24 @@ int main(int argc, char** argv) {
 
     // Run
     run_benchmark("Naive", naive_op, d_C, h_C, h_ref, M, K, N, iterations, benchmark_mode);
+
+    // cuBLAS
+    // cuBLAS is column-major, so we compute C = A*B in row-major as:
+    //   C^T = B^T * A^T  in column-major
+    // A row-major MxK matrix is a column-major KxM matrix (no data movement).
+    // So: cublasSgemm(N, M, K, B, N, A, K, C, N)
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+    float alpha = 1.0f, beta = 0.0f;
+
+    auto cublas_op = [&]() {
+        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+                    N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
+    };
+
+    run_benchmark("cuBLAS", cublas_op, d_C, h_C, h_ref, M, K, N, iterations, benchmark_mode);
+
+    cublasDestroy(handle);
 
     cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
     free(h_A); free(h_B); free(h_C); free(h_ref);
