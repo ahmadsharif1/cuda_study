@@ -8,6 +8,20 @@
 #include <cute/algorithm/copy.hpp>
 #include <cute/arch/copy_sm80.hpp>
 #include <cute/atom/mma_traits_sm90_gmma.hpp>
+#include "cutlass/cutlass.h"
+#include "cutlass/cluster_launch.hpp"
+#include "cutlass/arch/barrier.h"
+#include "cutlass/pipeline/sm90_pipeline.hpp"
+#include "cutlass/device_kernel.h"
+#include "cutlass/epilogue/collective/default_epilogue.hpp"
+#include "cutlass/epilogue/thread/linear_combination.h"
+#include "cutlass/gemm/dispatch_policy.hpp"
+#include "cutlass/gemm/collective/collective_builder.hpp"
+#include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/gemm/device/gemm_universal_adapter.h"
+#include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/gemm/kernel/tile_scheduler_params.h"
+#include "cutlass/util/packed_stride.hpp"
 
 using namespace cute;
 
@@ -548,7 +562,146 @@ __global__ void matmul_cute_wgmma_pipe(const float* A_ptr, const float* B_T_ptr,
     copy(tCrC, tCgC);
 }
 
-// CPU dot product for a single output element C[r][c]
+// Shared storage for TMA kernel: smem arrays + barriers for producer-consumer sync.
+// PIPE is the number of pipeline stages.
+template <class SmemLayoutA, class SmemLayoutB>
+struct TmaSmemStorage {
+    alignas(128) cute::ArrayEngine<float, cosize_v<SmemLayoutA>> A;
+    alignas(128) cute::ArrayEngine<float, cosize_v<SmemLayoutB>> B;
+    uint64_t tma_barrier[size<2>(SmemLayoutA{})];  // producer (TMA) barriers
+    uint64_t mma_barrier[size<2>(SmemLayoutA{})];  // consumer (MMA) barriers
+};
+
+// CuTe SM90 wgmma + TMA kernel.
+// TMA loads data from global -> swizzled smem using a single thread.
+// wgmma reads A,B from smem via descriptors. Multi-stage pipeline with
+// barrier-based producer-consumer synchronization.
+template <class CtaTiler,
+          class TmaA, class TmaB,
+          class SmemLayoutA, class SmemLayoutB,
+          class TiledMMA>
+__global__ static
+__launch_bounds__(decltype(size(TiledMMA{}))::value)
+void matmul_cute_wgmma_tma(int M, int K, int N,
+                            CUTLASS_GRID_CONSTANT TmaA const tma_a,
+                            CUTLASS_GRID_CONSTANT TmaB const tma_b,
+                            float* C_ptr, TiledMMA tiled_mma) {
+    using namespace cute;
+
+    // Shared memory
+    extern __shared__ char shared_memory[];
+    using SharedStorage = TmaSmemStorage<SmemLayoutA, SmemLayoutB>;
+    SharedStorage& smem = *reinterpret_cast<SharedStorage*>(shared_memory);
+    Tensor sA_float = make_tensor(make_smem_ptr(smem.A.begin()), SmemLayoutA{});  // (BLK_M,BLK_K,PIPE)
+    Tensor sB_float = make_tensor(make_smem_ptr(smem.B.begin()), SmemLayoutB{});  // (BLK_N,BLK_K,PIPE)
+
+    // tfloat32_t views for wgmma (same memory, different type)
+    using tfloat32_t = cutlass::tfloat32_t;
+    Tensor sA = make_tensor(make_smem_ptr(reinterpret_cast<tfloat32_t*>(smem.A.begin())), SmemLayoutA{});
+    Tensor sB = make_tensor(make_smem_ptr(reinterpret_cast<tfloat32_t*>(smem.B.begin())), SmemLayoutB{});
+
+    // TMA global tensors (reconstructed from TMA descriptors)
+    Tensor mA = tma_a.get_tma_tensor(make_shape(M, K));  // (M,K)
+    Tensor mB = tma_b.get_tma_tensor(make_shape(N, K));  // (N,K)
+    Tensor mC = make_tensor(make_gmem_ptr(C_ptr), make_shape(M, N), make_stride(N, Int<1>{}));
+
+    // Tile the global tensors
+    auto cta_coord = make_coord(blockIdx.x, blockIdx.y, _);
+    Tensor gA = local_tile(mA, CtaTiler{}, cta_coord, Step<_1, X, _1>{});  // (BLK_M,BLK_K,k)
+    Tensor gB = local_tile(mB, CtaTiler{}, cta_coord, Step< X,_1, _1>{});  // (BLK_N,BLK_K,k)
+    Tensor gC = local_tile(mC, CtaTiler{}, cta_coord, Step<_1, _1, X>{});  // (BLK_M,BLK_N)
+
+    // TMA partitions (float view for loading)
+    auto [tAgA, tAsA] = tma_partition(tma_a, Int<0>{}, Layout<_1>{},
+                                      group_modes<0,2>(sA_float), group_modes<0,2>(gA));
+    auto [tBgB, tBsB] = tma_partition(tma_b, Int<0>{}, Layout<_1>{},
+                                      group_modes<0,2>(sB_float), group_modes<0,2>(gB));
+
+    // Transaction bytes for barrier
+    constexpr int tma_transaction_bytes = sizeof(make_tensor_like(tensor<0>(tAsA)))
+                                        + sizeof(make_tensor_like(tensor<0>(tBsB)));
+
+    auto K_PIPE_MAX = size<1>(tAsA);
+    int k_tile_count = size<1>(tAgA);
+    int k_tile = 0;
+
+    // Initialize barriers (only warp 0, lane 0)
+    int warp_idx = cutlass::canonical_warp_idx_sync();
+    int lane_predicate = cute::elect_one_sync();
+    uint64_t* producer_mbar = smem.tma_barrier;
+    uint64_t* consumer_mbar = smem.mma_barrier;
+
+    using ProducerBarType = cutlass::arch::ClusterTransactionBarrier;
+    using ConsumerBarType = cutlass::arch::ClusterBarrier;
+    CUTE_UNROLL
+    for (int pipe = 0; pipe < K_PIPE_MAX; ++pipe) {
+        if ((warp_idx == 0) && lane_predicate) {
+            ProducerBarType::init(&producer_mbar[pipe], 1);
+            ConsumerBarType::init(&consumer_mbar[pipe], size(tiled_mma));
+        }
+    }
+    cluster_sync();
+
+    // Prologue: fill all pipeline stages
+    CUTE_UNROLL
+    for (int pipe = 0; pipe < K_PIPE_MAX; ++pipe) {
+        if ((warp_idx == 0) && lane_predicate) {
+            ProducerBarType::arrive_and_expect_tx(&producer_mbar[pipe], tma_transaction_bytes);
+            copy(tma_a.with(producer_mbar[pipe]), tAgA(_, k_tile), tAsA(_, pipe));
+            copy(tma_b.with(producer_mbar[pipe]), tBgB(_, k_tile), tBsB(_, pipe));
+        }
+        --k_tile_count;
+        ++k_tile;
+    }
+
+    // MMA partitions (tfloat32_t view for wgmma descriptors)
+    ThrMMA thr_mma = tiled_mma.get_thread_slice(threadIdx.x);
+    Tensor tCsA = thr_mma.partition_A(sA);   // (MMA,MMA_M,MMA_K,PIPE)
+    Tensor tCsB = thr_mma.partition_B(sB);   // (MMA,MMA_N,MMA_K,PIPE)
+    Tensor tCgC = thr_mma.partition_C(gC);   // (MMA,MMA_M,MMA_N)
+    Tensor tCrC = thr_mma.make_fragment_C(tCgC);
+    clear(tCrC);
+
+    // Fragments are smem descriptors for SS atoms
+    Tensor tCrA = thr_mma.make_fragment_A(tCsA);  // (MMA,MMA_M,MMA_K,PIPE)
+    Tensor tCrB = thr_mma.make_fragment_B(tCsB);  // (MMA,MMA_N,MMA_K,PIPE)
+
+    // Main loop
+    auto write_state = cutlass::PipelineState<K_PIPE_MAX>();
+    auto read_state  = cutlass::PipelineState<K_PIPE_MAX>();
+
+    CUTE_NO_UNROLL
+    while (k_tile_count > -K_PIPE_MAX) {
+        // Wait for TMA producer to complete this stage
+        int read_pipe = read_state.index();
+        ProducerBarType::wait(&producer_mbar[read_pipe], read_state.phase());
+
+        // wgmma on this stage
+        warpgroup_arrive();
+        gemm(tiled_mma, tCrA(_, _, _, read_pipe), tCrB(_, _, _, read_pipe), tCrC);
+        warpgroup_commit_batch();
+        warpgroup_wait<0>();
+
+        // Signal consumption done
+        ConsumerBarType::arrive(&consumer_mbar[read_pipe]);
+        ++read_state;
+
+        // Issue next TMA load (only thread 0)
+        if ((warp_idx == 0) && lane_predicate && (k_tile_count > 0)) {
+            int pipe = write_state.index();
+            ConsumerBarType::wait(&consumer_mbar[pipe], write_state.phase());
+            ProducerBarType::arrive_and_expect_tx(&producer_mbar[pipe], tma_transaction_bytes);
+            copy(tma_a.with(producer_mbar[pipe]), tAgA(_, k_tile), tAsA(_, pipe));
+            copy(tma_b.with(producer_mbar[pipe]), tBgB(_, k_tile), tBsB(_, pipe));
+            ++write_state;
+        }
+        --k_tile_count;
+        ++k_tile;
+    }
+
+    // Store result
+    copy(tCrC, tCgC);
+}
 float matmul_cpu_single(const float* A, const float* B, int r, int c, int K, int N) {
     float sum = 0.0f;
     for (int i = 0; i < K; i++)
@@ -641,6 +794,61 @@ void run_benchmark(const char* name, Func kernel_launch,
 
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
+}
+
+// -------------------------------------------------------------------------
+// CUTLASS 3.0 Warp-Specialized GEMM types (from example 48)
+// -------------------------------------------------------------------------
+namespace cutlass_ws {
+    using         ElementA    = float;
+    using         LayoutA     = cutlass::layout::RowMajor;
+    constexpr int AlignmentA  = 128 / cutlass::sizeof_bits<ElementA>::value;
+
+    using         ElementB    = float;
+    using         LayoutB     = cutlass::layout::ColumnMajor;
+    constexpr int AlignmentB  = 128 / cutlass::sizeof_bits<ElementB>::value;
+
+    using         ElementC    = float;
+    using         LayoutC     = cutlass::layout::RowMajor;
+    constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;
+
+    using ElementAccumulator  = float;
+    using TileShape           = Shape<_128, _128, _32>;
+    using ClusterShape        = Shape<_1, _1, _1>;
+
+    using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
+        cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+        TileShape, ClusterShape,
+        cutlass::epilogue::collective::EpilogueTileAuto,
+        ElementAccumulator, ElementAccumulator,
+        ElementC, LayoutC, AlignmentC,
+        ElementC, LayoutC, AlignmentC,
+        cutlass::epilogue::collective::EpilogueScheduleAuto
+    >::CollectiveOp;
+
+    using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
+        cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+        ElementA, LayoutA, AlignmentA,
+        ElementB, LayoutB, AlignmentB,
+        ElementAccumulator,
+        TileShape, ClusterShape,
+        cutlass::gemm::collective::StageCountAutoCarveout<
+            static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
+        cutlass::gemm::collective::KernelScheduleAuto
+    >::CollectiveOp;
+
+    using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+        Shape<int, int, int>,
+        CollectiveMainloop,
+        CollectiveEpilogue
+    >;
+
+    using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+
+    using StrideA = typename Gemm::GemmKernel::StrideA;
+    using StrideB = typename Gemm::GemmKernel::StrideB;
+    using StrideC = typename Gemm::GemmKernel::StrideC;
+    using StrideD = typename Gemm::GemmKernel::StrideD;
 }
 
 // -------------------------------------------------------------------------
@@ -919,6 +1127,105 @@ int main(int argc, char** argv) {
         };
 
         run_benchmark("CuTe WGMMA Pipe+Swiz", wgmma_swiz_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CuTe SM90 wgmma + TMA: hardware-accelerated loads, multi-stage pipeline
+    {
+        using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
+        auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _1, _1>>{});
+
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 32;
+        constexpr int PIPE = 3;  // pipeline stages
+        auto bM = Int<BLK_M>{};
+        auto bN = Int<BLK_N>{};
+        auto bK = Int<BLK_K>{};
+        auto bP = Int<PIPE>{};
+        auto cta_tiler = make_shape(bM, bN, bK);
+
+        // Swizzled smem layouts with pipeline dimension (M/N, K, PIPE)
+        using SmemLayoutAtom = GMMA::Layout_K_SW128_Atom<float>;
+        auto sA_layout = tile_to_shape(SmemLayoutAtom{}, make_shape(bM, bK, bP));
+        auto sB_layout = tile_to_shape(SmemLayoutAtom{}, make_shape(bN, bK, bP));
+
+        // Create TMA atoms on host: inspect global tensor layout + smem layout
+        // A: (M,K) row-major with K contiguous
+        Tensor host_mA = make_tensor(make_gmem_ptr(d_A), make_shape(M, K), make_stride(K, Int<1>{}));
+        // B_T: (N,K) with K contiguous
+        Tensor host_mB = make_tensor(make_gmem_ptr(d_B_T), make_shape(N, K), make_stride(K, Int<1>{}));
+
+        auto tma_a = make_tma_atom(SM90_TMA_LOAD{}, host_mA, sA_layout(_, _, 0), make_shape(bM, bK));
+        auto tma_b = make_tma_atom(SM90_TMA_LOAD{}, host_mB, sB_layout(_, _, 0), make_shape(bN, bK));
+
+        using SharedStorage = TmaSmemStorage<decltype(sA_layout), decltype(sB_layout)>;
+        int smem_size = sizeof(SharedStorage);
+
+        using KernelType = decltype(&matmul_cute_wgmma_tma<decltype(cta_tiler),
+            decltype(tma_a), decltype(tma_b),
+            decltype(sA_layout), decltype(sB_layout),
+            decltype(tiled_mma)>);
+        KernelType kernel_ptr = &matmul_cute_wgmma_tma<decltype(cta_tiler),
+            decltype(tma_a), decltype(tma_b),
+            decltype(sA_layout), decltype(sB_layout),
+            decltype(tiled_mma)>;
+
+        cudaFuncSetAttribute(kernel_ptr,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
+
+        dim3 dimBlock(size(tiled_mma));  // 256 threads
+        dim3 dimCluster(1, 1, 1);       // no multicast
+        dim3 dimGrid(M / BLK_M, N / BLK_N);
+        cutlass::ClusterLaunchParams params = {dimGrid, dimBlock, dimCluster, smem_size};
+
+        auto wgmma_tma_op = [&]() {
+            cutlass::Status status = cutlass::launch_kernel_on_cluster(params,
+                reinterpret_cast<void const*>(kernel_ptr),
+                M, K, N, tma_a, tma_b, d_C, tiled_mma);
+        };
+
+        run_benchmark("CuTe WGMMA TMA", wgmma_tma_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CUTLASS 3.0 Warp-Specialized GEMM (example 48: TMA + warp specialization + persistent tile scheduler)
+    {
+        using namespace cutlass_ws;
+
+        auto stride_a = cutlass::make_cute_packed_stride(StrideA{}, {M, K, 1});
+        auto stride_b = cutlass::make_cute_packed_stride(StrideB{}, {N, K, 1});
+        auto stride_c = cutlass::make_cute_packed_stride(StrideC{}, {M, N, 1});
+        auto stride_d = cutlass::make_cute_packed_stride(StrideD{}, {M, N, 1});
+
+        cutlass::KernelHardwareInfo hw_info =
+            cutlass::KernelHardwareInfo::make_kernel_hardware_info<Gemm::GemmKernel>(0);
+
+        float gemm_alpha = 1.0f, gemm_beta = 0.0f;
+
+        typename Gemm::Arguments arguments{
+            cutlass::gemm::GemmUniversalMode::kGemm,
+            {M, N, K},
+            {d_A, stride_a, d_B, stride_b},
+            {{gemm_alpha, gemm_beta}, d_C, stride_c, d_C, stride_d},
+            hw_info
+        };
+
+        arguments.scheduler.max_swizzle_size = 4;
+
+        Gemm gemm;
+        size_t workspace_size = Gemm::get_workspace_size(arguments);
+        uint8_t* workspace_ptr = nullptr;
+        if (workspace_size > 0) cudaMalloc(&workspace_ptr, workspace_size);
+
+        if (gemm.can_implement(arguments) != cutlass::Status::kSuccess) {
+            printf("CUTLASS WS GEMM: cannot implement this problem\n");
+        } else {
+            auto cutlass_ws_op = [&]() {
+                gemm.initialize(arguments, workspace_ptr);
+                gemm.run();
+            };
+
+            run_benchmark("CUTLASS WS GEMM", cutlass_ws_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+        }
+
+        if (workspace_ptr) cudaFree(workspace_ptr);
     }
 
     // cuBLAS
