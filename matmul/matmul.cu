@@ -25,52 +25,53 @@ __global__ void matmul_naive(const float* A, const float* B, float* C, int M, in
 // Verification & Benchmarking Helpers
 // -------------------------------------------------------------------------
 
-// CPU reference matmul for verification (only called on small matrices)
-void matmul_cpu(const float* A, const float* B, float* C, int M, int K, int N) {
-    for (int r = 0; r < M; r++)
-        for (int c = 0; c < N; c++) {
-            float sum = 0.0f;
-            for (int i = 0; i < K; i++)
-                sum += A[r * K + i] * B[i * N + c];
-            C[r * N + c] = sum;
-        }
+// CPU dot product for a single output element C[r][c]
+float matmul_cpu_single(const float* A, const float* B, int r, int c, int K, int N) {
+    float sum = 0.0f;
+    for (int i = 0; i < K; i++)
+        sum += A[r * K + i] * B[i * N + c];
+    return sum;
 }
 
-bool verify(const float* gpu, const float* ref, int M, int N) {
+// Probabilistic verification: spot-check num_samples random elements
+bool verify(const float* gpu_C, const float* h_A, const float* h_B,
+            int M, int K, int N, int num_samples = 1000) {
     float max_rel_err = 0.0f, max_abs_err = 0.0f;
     int mismatches = 0;
     float rtol = 1e-5f, atol = 1e-3f;
 
-    for (int r = 0; r < M; r++) {
-        for (int c = 0; c < N; c++) {
-            float got = gpu[r * N + c];
-            float exp = ref[r * N + c];
-            float abs_err = fabsf(got - exp);
-            float rel_err = abs_err / fmaxf(fabsf(exp), 1e-6f);
+    // Fixed seed for deterministic sampling
+    srand(42);
+    for (int s = 0; s < num_samples; s++) {
+        int r = rand() % M;
+        int c = rand() % N;
+        float got = gpu_C[r * N + c];
+        float exp = matmul_cpu_single(h_A, h_B, r, c, K, N);
+        float abs_err = fabsf(got - exp);
+        float rel_err = abs_err / fmaxf(fabsf(exp), 1e-6f);
 
-            if (abs_err > atol + rtol * fabsf(exp)) {
-                if (mismatches < 5)
-                    printf("  MISMATCH C[%d][%d]: gpu=%.6f cpu=%.6f (abs=%.6f rel=%.6f)\n",
-                           r, c, got, exp, abs_err, rel_err);
-                mismatches++;
-            }
-            max_abs_err = fmaxf(max_abs_err, abs_err);
-            max_rel_err = fmaxf(max_rel_err, rel_err);
+        if (abs_err > atol + rtol * fabsf(exp)) {
+            if (mismatches < 5)
+                printf("  MISMATCH C[%d][%d]: gpu=%.6f cpu=%.6f (abs=%.6f rel=%.6f)\n",
+                       r, c, got, exp, abs_err, rel_err);
+            mismatches++;
         }
+        max_abs_err = fmaxf(max_abs_err, abs_err);
+        max_rel_err = fmaxf(max_rel_err, rel_err);
     }
-    printf("  max abs error: %e\n", max_abs_err);
+    printf("  max abs error: %e (over %d samples)\n", max_abs_err, num_samples);
     printf("  max rel error: %e\n", max_rel_err);
     if (mismatches == 0) {
-        printf("  PASS: all %d elements match\n", M * N);
+        printf("  PASS: %d/%d samples match\n", num_samples, num_samples);
         return true;
     }
-    printf("  FAIL: %d / %d mismatches\n", mismatches, M * N);
+    printf("  FAIL: %d / %d samples mismatched\n", mismatches, num_samples);
     return false;
 }
 
 template <typename Func>
 void run_benchmark(const char* name, Func kernel_launch,
-                   float* d_C, float* h_C, const float* h_ref,
+                   float* d_C, float* h_C, const float* h_A, const float* h_B,
                    int M, int K, int N, int iterations, bool benchmark_mode) {
 
     size_t size_C = (size_t)M * N * sizeof(float);
@@ -110,7 +111,7 @@ void run_benchmark(const char* name, Func kernel_launch,
 
     printf("----------------------------------------------------------------\n");
     printf("%-20s\n", name);
-    verify(h_C, h_ref, M, N);
+    verify(h_C, h_A, h_B, M, K, N);
     printf("  Avg Time     : %.4f ms\n", avg_ms);
     printf("  Performance  : %.2f TFLOPS\n", tflops);
     printf("----------------------------------------------------------------\n");
@@ -140,7 +141,7 @@ int main(int argc, char** argv) {
     else
         printf("Running in PROFILING mode (1 iteration, no warmup, no verification).\n");
 
-    int M = 32, K = 8192, N = 64;
+    int M = 4096, K = 16384, N = 8192;
 
     size_t size_A = (size_t)M * K * sizeof(float);
     size_t size_B = (size_t)K * N * sizeof(float);
@@ -150,13 +151,9 @@ int main(int argc, char** argv) {
     float* h_A = (float*)malloc(size_A);
     float* h_B = (float*)malloc(size_B);
     float* h_C = (float*)malloc(size_C);
-    float* h_ref = (float*)malloc(size_C);
 
     for (int i = 0; i < M * K; i++) h_A[i] = (float)(rand() % 10);
     for (int i = 0; i < K * N; i++) h_B[i] = (float)(rand() % 10);
-
-    // CPU reference
-    matmul_cpu(h_A, h_B, h_ref, M, K, N);
 
     // Device alloc
     float *d_A, *d_B, *d_C;
@@ -176,7 +173,7 @@ int main(int argc, char** argv) {
     };
 
     // Run
-    run_benchmark("Naive", naive_op, d_C, h_C, h_ref, M, K, N, iterations, benchmark_mode);
+    run_benchmark("Naive", naive_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
 
     // cuBLAS
     // cuBLAS is column-major, so we compute C = A*B in row-major as:
@@ -192,11 +189,11 @@ int main(int argc, char** argv) {
                     N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
     };
 
-    run_benchmark("cuBLAS", cublas_op, d_C, h_C, h_ref, M, K, N, iterations, benchmark_mode);
+    run_benchmark("cuBLAS", cublas_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
 
     cublasDestroy(handle);
 
     cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
-    free(h_A); free(h_B); free(h_C); free(h_ref);
+    free(h_A); free(h_B); free(h_C);
     return 0;
 }
