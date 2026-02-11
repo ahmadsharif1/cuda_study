@@ -152,8 +152,9 @@ int main(int argc, char** argv) {
     float* h_B = (float*)malloc(size_B);
     float* h_C = (float*)malloc(size_C);
 
-    for (int i = 0; i < M * K; i++) h_A[i] = (float)(rand() % 10);
-    for (int i = 0; i < K * N; i++) h_B[i] = (float)(rand() % 10);
+    srand(123);
+    for (int i = 0; i < M * K; i++) h_A[i] = (float)rand() / RAND_MAX;
+    for (int i = 0; i < K * N; i++) h_B[i] = (float)rand() / RAND_MAX;
 
     // Device alloc
     float *d_A, *d_B, *d_C;
