@@ -191,6 +191,16 @@ int main(int argc, char** argv) {
 
     run_benchmark("cuBLAS", cublas_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
 
+    // cuBLAS with TF32 tensor cores
+    cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
+
+    auto cublas_tf32_op = [&]() {
+        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+                    N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
+    };
+
+    run_benchmark("cuBLAS TF32", cublas_tf32_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+
     cublasDestroy(handle);
 
     cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
