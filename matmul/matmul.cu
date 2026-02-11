@@ -5,6 +5,8 @@
 #include <cublas_v2.h>
 #include <cute/tensor.hpp>
 #include <cute/algorithm/gemm.hpp>
+#include <cute/algorithm/copy.hpp>
+#include <cute/arch/copy_sm80.hpp>
 
 using namespace cute;
 
@@ -64,6 +66,147 @@ __global__ void matmul_cute_simple(const float* A_ptr, const float* B_ptr, float
     }
 
     // Store result
+    copy(tCrC, tCgC);
+}
+
+// CuTe SMEM kernel: global -> shared memory (cp.async) -> registers -> MMA
+template <int BLK_M, int BLK_N, int BLK_K,
+          class TiledMMA, class CopyA, class CopyB,
+          class SmemLayoutA, class SmemLayoutB>
+__global__ void matmul_cute_smem(const float* A_ptr, const float* B_ptr, float* C_ptr,
+                                  int M, int K, int N,
+                                  TiledMMA tiled_mma, CopyA copy_a, CopyB copy_b,
+                                  SmemLayoutA sA_layout, SmemLayoutB sB_layout) {
+    extern __shared__ float smem[];
+
+    auto mA = make_tensor(make_gmem_ptr(A_ptr), make_shape(M, K), make_stride(K, Int<1>{}));
+    auto mB = make_tensor(make_gmem_ptr(B_ptr), make_shape(N, K), make_stride(Int<1>{}, N));
+    auto mC = make_tensor(make_gmem_ptr(C_ptr), make_shape(M, N), make_stride(N, Int<1>{}));
+
+    auto gA = local_tile(mA, make_shape(Int<BLK_M>{}, Int<BLK_K>{}), make_coord(blockIdx.x, _));
+    auto gB = local_tile(mB, make_shape(Int<BLK_N>{}, Int<BLK_K>{}), make_coord(blockIdx.y, _));
+    auto gC = local_tile(mC, make_shape(Int<BLK_M>{}, Int<BLK_N>{}), make_coord(blockIdx.x, blockIdx.y));
+
+    auto sA = make_tensor(make_smem_ptr(smem), sA_layout);
+    auto sB = make_tensor(make_smem_ptr(smem + cosize(sA_layout)), sB_layout);
+
+    // Copy partitions: global -> shared
+    auto thr_copy_a = copy_a.get_thread_slice(threadIdx.x);
+    auto tAgA = thr_copy_a.partition_S(gA);
+    auto tAsA = thr_copy_a.partition_D(sA);
+
+    auto thr_copy_b = copy_b.get_thread_slice(threadIdx.x);
+    auto tBgB = thr_copy_b.partition_S(gB);
+    auto tBsB = thr_copy_b.partition_D(sB);
+
+    // MMA partitions: shared -> registers
+    auto thr_mma = tiled_mma.get_thread_slice(threadIdx.x);
+    auto tCsA = thr_mma.partition_A(sA);
+    auto tCsB = thr_mma.partition_B(sB);
+    auto tCgC = thr_mma.partition_C(gC);
+    auto tCrC = thr_mma.partition_fragment_C(gC);
+    clear(tCrC);
+
+    auto tCrA = thr_mma.partition_fragment_A(sA);
+    auto tCrB = thr_mma.partition_fragment_B(sB);
+
+    int k_tile_max = size<2>(gA);
+    for (int k = 0; k < k_tile_max; k++) {
+        copy(copy_a, tAgA(_, _, _, k), tAsA);
+        copy(copy_b, tBgB(_, _, _, k), tBsB);
+        cp_async_fence();
+        cp_async_wait<0>();
+        __syncthreads();
+
+        copy(tCsA, tCrA);
+        copy(tCsB, tCrB);
+        gemm(tiled_mma, tCrA, tCrB, tCrC);
+        __syncthreads();
+    }
+
+    copy(tCrC, tCgC);
+}
+
+// CuTe double-buffered pipelined kernel: overlap global loads with MMA compute
+template <int BLK_M, int BLK_N, int BLK_K,
+          class TiledMMA, class CopyA, class CopyB,
+          class SmemLayoutA, class SmemLayoutB>
+__global__ void matmul_cute_smem_pipe(const float* A_ptr, const float* B_ptr, float* C_ptr,
+                                       int M, int K, int N,
+                                       TiledMMA tiled_mma, CopyA copy_a, CopyB copy_b,
+                                       SmemLayoutA sA_layout, SmemLayoutB sB_layout) {
+    extern __shared__ float smem[];
+
+    // sA_layout / sB_layout have a 3rd mode for double-buffering: (BLK_M, BLK_K, 2)
+    auto sA = make_tensor(make_smem_ptr(smem), sA_layout);
+    auto sB = make_tensor(make_smem_ptr(smem + cosize(sA_layout)), sB_layout);
+
+    auto mA = make_tensor(make_gmem_ptr(A_ptr), make_shape(M, K), make_stride(K, Int<1>{}));
+    auto mB = make_tensor(make_gmem_ptr(B_ptr), make_shape(N, K), make_stride(Int<1>{}, N));
+    auto mC = make_tensor(make_gmem_ptr(C_ptr), make_shape(M, N), make_stride(N, Int<1>{}));
+
+    auto gA = local_tile(mA, make_shape(Int<BLK_M>{}, Int<BLK_K>{}), make_coord(blockIdx.x, _));
+    auto gB = local_tile(mB, make_shape(Int<BLK_N>{}, Int<BLK_K>{}), make_coord(blockIdx.y, _));
+    auto gC = local_tile(mC, make_shape(Int<BLK_M>{}, Int<BLK_N>{}), make_coord(blockIdx.x, blockIdx.y));
+
+    // Copy partitions (3rd mode = stage)
+    auto thr_copy_a = copy_a.get_thread_slice(threadIdx.x);
+    auto tAgA = thr_copy_a.partition_S(gA);
+    auto tAsA = thr_copy_a.partition_D(sA);
+
+    auto thr_copy_b = copy_b.get_thread_slice(threadIdx.x);
+    auto tBgB = thr_copy_b.partition_S(gB);
+    auto tBsB = thr_copy_b.partition_D(sB);
+
+    // MMA partitions for each stage
+    auto thr_mma = tiled_mma.get_thread_slice(threadIdx.x);
+    auto tCsA0 = thr_mma.partition_A(sA(_, _, 0));
+    auto tCsA1 = thr_mma.partition_A(sA(_, _, 1));
+    auto tCsB0 = thr_mma.partition_B(sB(_, _, 0));
+    auto tCsB1 = thr_mma.partition_B(sB(_, _, 1));
+    auto tCgC  = thr_mma.partition_C(gC);
+    auto tCrC  = thr_mma.partition_fragment_C(gC);
+    clear(tCrC);
+
+    auto tCrA = thr_mma.partition_fragment_A(sA(_, _, 0));
+    auto tCrB = thr_mma.partition_fragment_B(sB(_, _, 0));
+
+    int k_tile_max = size<2>(gA);
+
+    // Prologue: load first tile into stage 0
+    copy(copy_a, tAgA(_, _, _, 0), tAsA(_, _, _, 0));
+    copy(copy_b, tBgB(_, _, _, 0), tBsB(_, _, _, 0));
+    cp_async_fence();
+    cp_async_wait<0>();
+    __syncthreads();
+
+    for (int k = 0; k < k_tile_max; k++) {
+        int stage = k % 2;
+
+        // Start loading NEXT tile into the other buffer
+        if (k + 1 < k_tile_max) {
+            copy(copy_a, tAgA(_, _, _, k + 1), tAsA(_, _, _, 1 - stage));
+            copy(copy_b, tBgB(_, _, _, k + 1), tBsB(_, _, _, 1 - stage));
+            cp_async_fence();
+        }
+
+        // Compute on current stage
+        if (stage == 0) {
+            copy(tCsA0, tCrA);
+            copy(tCsB0, tCrB);
+        } else {
+            copy(tCsA1, tCrA);
+            copy(tCsB1, tCrB);
+        }
+        gemm(tiled_mma, tCrA, tCrB, tCrC);
+
+        // Wait for next tile load to complete
+        if (k + 1 < k_tile_max) {
+            cp_async_wait<0>();
+        }
+        __syncthreads();
+    }
+
     copy(tCrC, tCgC);
 }
 
@@ -241,6 +384,120 @@ int main(int argc, char** argv) {
         };
 
         run_benchmark("CuTe Simple MMA", cute_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CuTe shared memory kernel with BLK_K=8
+    {
+        using mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>
+        >;
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
+        mma_t tiled_mma;
+
+        // Async 128-bit copies: A vectorizes along K, B vectorizes along N
+        using CopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>;
+        auto copy_a = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_64, _2>, Stride<_2, _1>>{},
+            Layout<Shape< _1, _4>>{});
+        auto copy_b = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_32, _4>>{},
+            Layout<Shape< _4, _1>>{});
+
+        // Shared memory layouts matching global memory contiguity
+        auto sA_layout = make_layout(make_shape(Int<BLK_M>{}, Int<BLK_K>{}),
+                                     make_stride(Int<BLK_K>{}, Int<1>{}));
+        auto sB_layout = make_layout(make_shape(Int<BLK_N>{}, Int<BLK_K>{}),
+                                     make_stride(Int<1>{}, Int<BLK_N>{}));
+
+        int smem_size = (cosize(sA_layout) + cosize(sB_layout)) * sizeof(float);
+        dim3 block_s(size(tiled_mma));
+        dim3 grid_s(M / BLK_M, N / BLK_N);
+
+        auto smem_k8_op = [&]() {
+            matmul_cute_smem<BLK_M, BLK_N, BLK_K>
+                <<<grid_s, block_s, smem_size>>>(d_A, d_B, d_C, M, K, N,
+                    tiled_mma, copy_a, copy_b, sA_layout, sB_layout);
+        };
+
+        run_benchmark("CuTe SMEM k=8", smem_k8_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CuTe shared memory kernel with BLK_K=32
+    {
+        using mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>
+        >;
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 32;
+        mma_t tiled_mma;
+
+        using CopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>;
+        auto copy_a = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_16, _8>, Stride<_8, _1>>{},
+            Layout<Shape< _1, _4>>{});
+        auto copy_b = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_32, _4>>{},
+            Layout<Shape< _4, _1>>{});
+
+        auto sA_layout = make_layout(make_shape(Int<BLK_M>{}, Int<BLK_K>{}),
+                                     make_stride(Int<BLK_K>{}, Int<1>{}));
+        auto sB_layout = make_layout(make_shape(Int<BLK_N>{}, Int<BLK_K>{}),
+                                     make_stride(Int<1>{}, Int<BLK_N>{}));
+
+        int smem_size = (cosize(sA_layout) + cosize(sB_layout)) * sizeof(float);
+        dim3 block_s(size(tiled_mma));
+        dim3 grid_s(M / BLK_M, N / BLK_N);
+
+        auto smem_k32_op = [&]() {
+            matmul_cute_smem<BLK_M, BLK_N, BLK_K>
+                <<<grid_s, block_s, smem_size>>>(d_A, d_B, d_C, M, K, N,
+                    tiled_mma, copy_a, copy_b, sA_layout, sB_layout);
+        };
+
+        run_benchmark("CuTe SMEM k=32", smem_k32_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CuTe double-buffered pipelined kernel with BLK_K=32
+    {
+        using mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>
+        >;
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 32;
+        mma_t tiled_mma;
+
+        using CopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>;
+        auto copy_a = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_16, _8>, Stride<_8, _1>>{},
+            Layout<Shape< _1, _4>>{});
+        auto copy_b = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_32, _4>>{},
+            Layout<Shape< _4, _1>>{});
+
+        // 3D layouts with stage dimension for double buffering
+        auto sA_layout = make_layout(make_shape(Int<BLK_M>{}, Int<BLK_K>{}, Int<2>{}),
+                                     make_stride(Int<BLK_K>{}, Int<1>{}, Int<BLK_M * BLK_K>{}));
+        auto sB_layout = make_layout(make_shape(Int<BLK_N>{}, Int<BLK_K>{}, Int<2>{}),
+                                     make_stride(Int<1>{}, Int<BLK_N>{}, Int<BLK_N * BLK_K>{}));
+
+        int smem_size = (cosize(sA_layout) + cosize(sB_layout)) * sizeof(float);
+        dim3 block_s(size(tiled_mma));
+        dim3 grid_s(M / BLK_M, N / BLK_N);
+
+        // Request extra shared memory for double buffering (64 KB)
+        auto kernel_fn = matmul_cute_smem_pipe<BLK_M, BLK_N, BLK_K,
+            mma_t, decltype(copy_a), decltype(copy_b),
+            decltype(sA_layout), decltype(sB_layout)>;
+        cudaFuncSetAttribute(kernel_fn, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
+
+        auto pipe_op = [&]() {
+            matmul_cute_smem_pipe<BLK_M, BLK_N, BLK_K>
+                <<<grid_s, block_s, smem_size>>>(d_A, d_B, d_C, M, K, N,
+                    tiled_mma, copy_a, copy_b, sA_layout, sB_layout);
+        };
+
+        run_benchmark("CuTe SMEM Pipelined", pipe_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
     }
 
     // cuBLAS
