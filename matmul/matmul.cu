@@ -1185,6 +1185,58 @@ int main(int argc, char** argv) {
         run_benchmark("CuTe WGMMA TMA", wgmma_tma_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
     }
 
+    // CuTe SM90 wgmma + TMA: 128x256 tile (matching cuBLAS tile footprint)
+    {
+        using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
+        auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _2, _1>>{});
+
+        constexpr int BLK_M = 128, BLK_N = 256, BLK_K = 32;
+        constexpr int PIPE = 3;
+        auto bM = Int<BLK_M>{};
+        auto bN = Int<BLK_N>{};
+        auto bK = Int<BLK_K>{};
+        auto bP = Int<PIPE>{};
+        auto cta_tiler = make_shape(bM, bN, bK);
+
+        using SmemLayoutAtom = GMMA::Layout_K_SW128_Atom<float>;
+        auto sA_layout = tile_to_shape(SmemLayoutAtom{}, make_shape(bM, bK, bP));
+        auto sB_layout = tile_to_shape(SmemLayoutAtom{}, make_shape(bN, bK, bP));
+
+        Tensor host_mA = make_tensor(make_gmem_ptr(d_A), make_shape(M, K), make_stride(K, Int<1>{}));
+        Tensor host_mB = make_tensor(make_gmem_ptr(d_B_T), make_shape(N, K), make_stride(K, Int<1>{}));
+
+        auto tma_a = make_tma_atom(SM90_TMA_LOAD{}, host_mA, sA_layout(_, _, 0), make_shape(bM, bK));
+        auto tma_b = make_tma_atom(SM90_TMA_LOAD{}, host_mB, sB_layout(_, _, 0), make_shape(bN, bK));
+
+        using SharedStorage = TmaSmemStorage<decltype(sA_layout), decltype(sB_layout)>;
+        int smem_size = sizeof(SharedStorage);
+
+        using KernelType = decltype(&matmul_cute_wgmma_tma<decltype(cta_tiler),
+            decltype(tma_a), decltype(tma_b),
+            decltype(sA_layout), decltype(sB_layout),
+            decltype(tiled_mma)>);
+        KernelType kernel_ptr = &matmul_cute_wgmma_tma<decltype(cta_tiler),
+            decltype(tma_a), decltype(tma_b),
+            decltype(sA_layout), decltype(sB_layout),
+            decltype(tiled_mma)>;
+
+        cudaFuncSetAttribute(kernel_ptr,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
+
+        dim3 dimBlock(size(tiled_mma));  // 512 threads (4 warp groups)
+        dim3 dimCluster(1, 1, 1);
+        dim3 dimGrid(M / BLK_M, N / BLK_N);
+        cutlass::ClusterLaunchParams params = {dimGrid, dimBlock, dimCluster, smem_size};
+
+        auto wgmma_tma_256_op = [&]() {
+            cutlass::Status status = cutlass::launch_kernel_on_cluster(params,
+                reinterpret_cast<void const*>(kernel_ptr),
+                M, K, N, tma_a, tma_b, d_C, tiled_mma);
+        };
+
+        run_benchmark("CuTe WGMMA TMA 128x256", wgmma_tma_256_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
     // CUTLASS 3.0 Warp-Specialized GEMM (example 48: TMA + warp specialization + persistent tile scheduler)
     {
         using namespace cutlass_ws;
