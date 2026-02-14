@@ -797,7 +797,7 @@ void run_benchmark(const char* name, Func kernel_launch,
 }
 
 // -------------------------------------------------------------------------
-// CUTLASS 3.0 Warp-Specialized GEMM types (from example 48)
+// CUTLASS 3.0 PingPong Warp-Specialized GEMM (from example 49)
 // -------------------------------------------------------------------------
 namespace cutlass_ws {
     using         ElementA    = float;
@@ -838,7 +838,7 @@ namespace cutlass_ws {
     >::CollectiveOp;
 
     using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-        Shape<int, int, int>,
+        Shape<int, int, int, int>,
         CollectiveMainloop,
         CollectiveEpilogue
     >;
@@ -1201,7 +1201,7 @@ int main(int argc, char** argv) {
 
         typename Gemm::Arguments arguments{
             cutlass::gemm::GemmUniversalMode::kGemm,
-            {M, N, K},
+            {M, N, K, 1},
             {d_A, stride_a, d_B, stride_b},
             {{gemm_alpha, gemm_beta}, d_C, stride_c, d_C, stride_d},
             hw_info
