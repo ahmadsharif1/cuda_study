@@ -36,9 +36,21 @@ void create_random_cycle(int* arr, int n) {
     arr[perm[n - 1]] = perm[0];
 }
 
-// ---------------------------------------------------------------------------
-// Pointer-chase kernels, one per memory level
-// ---------------------------------------------------------------------------
+// Same as create_random_cycle but each element is spaced 32 ints apart
+// (= 128 bytes = one cache line).  Guarantees every chase step touches
+// a different cache line, eliminating any L2 hits from spatial locality.
+void create_random_cycle_strided(int* arr, int n_lines) {
+    constexpr int STRIDE = 128 / sizeof(int);  // 32 ints per cache line
+    std::vector<int> perm(n_lines);
+    for (int i = 0; i < n_lines; i++) perm[i] = i;
+    for (int i = n_lines - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        std::swap(perm[i], perm[j]);
+    }
+    for (int i = 0; i < n_lines - 1; i++)
+        arr[perm[i] * STRIDE] = perm[i + 1] * STRIDE;
+    arr[perm[n_lines - 1] * STRIDE] = perm[0] * STRIDE;
+}
 
 // Shared memory
 __global__ void chase_smem(const int* __restrict__ arr_in, int n, int steps,
@@ -224,12 +236,18 @@ int main() {
     // Then run the pointer chase with __ldcg loads.  Since the data is NOT
     // in L2, every __ldcg load misses L2 and goes to HBM.
     //
+    // Each element is spaced one cache line apart (128 bytes = 32 ints)
+    // to guarantee every chase step touches a DIFFERENT cache line.
+    //
     // We DON'T warmup the chase itself — that would load data into L2.
     // We do a separate GPU warmup (flush kernel) so the GPU isn't cold.
     double hbm_cycles, hbm_ns;
     {
-        std::vector<int> h(N_HBM);
-        create_random_cycle(h.data(), N_HBM);
+        // 256 MB / 128 bytes per cache line = 2M cache lines
+        constexpr int N_LINES = N_HBM / (128 / sizeof(int));
+
+        std::vector<int> h(N_HBM, 0);
+        create_random_cycle_strided(h.data(), N_LINES);
 
         int *d_arr;
         CHECK_CUDA(cudaMalloc(&d_arr, (size_t)N_HBM * sizeof(int)));
