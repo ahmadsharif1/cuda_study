@@ -5,8 +5,8 @@
 NVCC = nvcc
 
 # GPU architecture: override via command line (make CUDA_ARCH=sm_80) or environment variable
-# Defaults to native (auto-detect host GPU)
-CUDA_ARCH ?= native
+# Defaults to sm90a (change to native for your GPU)
+CUDA_ARCH ?= sm_90a
 
 # Compiler flags
 CUTLASS_PATH = ../cutlass
