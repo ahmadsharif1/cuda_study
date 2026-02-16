@@ -70,6 +70,340 @@ __global__ void matmul_tiled(const float* A, const float* B, float* C, int M, in
         C[row * N + col] = sum;
 }
 
+// Register-tiled GEMM: each thread computes a TM×TN sub-block of outputs.
+// The outer-product inner loop does TM+TN smem loads for TM×TN FMAs,
+// dramatically improving the compute-to-load ratio vs the basic tiled kernel.
+template <int BLK_M, int BLK_N, int BLK_K, int TM, int TN>
+__global__ void matmul_tiled_reg(const float* A, const float* B, float* C, int M, int K, int N) {
+    __shared__ float As[BLK_M][BLK_K];
+    __shared__ float Bs[BLK_K][BLK_N];
+
+    // Thread-block tile origin
+    int block_row = blockIdx.y * BLK_M;
+    int block_col = blockIdx.x * BLK_N;
+
+    // Thread indices within the tile grid (each thread owns TM×TN outputs)
+    constexpr int THREADS_M = BLK_M / TM;  // 16
+    constexpr int THREADS_N = BLK_N / TN;  // 16
+    int tid = threadIdx.x;
+    int thread_row = (tid / THREADS_N) * TM;
+    int thread_col = (tid % THREADS_N) * TN;
+
+    // Accumulator registers
+    float accum[TM][TN] = {};
+
+    // Number of float elements each thread must load to cooperatively fill smem
+    constexpr int BLOCK_SIZE = THREADS_M * THREADS_N;  // 256
+    constexpr int A_TILE_ELEMS = BLK_M * BLK_K;        // 128*8 = 1024
+    constexpr int B_TILE_ELEMS = BLK_K * BLK_N;        // 8*128 = 1024
+    constexpr int A_LOADS_PER_THREAD = A_TILE_ELEMS / BLOCK_SIZE;  // 4
+    constexpr int B_LOADS_PER_THREAD = B_TILE_ELEMS / BLOCK_SIZE;  // 4
+
+    for (int t = 0; t < K; t += BLK_K) {
+        // Cooperative load of A tile into shared memory
+        #pragma unroll
+        for (int i = 0; i < A_LOADS_PER_THREAD; i++) {
+            int idx = tid + i * BLOCK_SIZE;
+            int a_row = idx / BLK_K;
+            int a_col = idx % BLK_K;
+            int global_row = block_row + a_row;
+            int global_col = t + a_col;
+            As[a_row][a_col] = (global_row < M && global_col < K)
+                                ? A[global_row * K + global_col] : 0.0f;
+        }
+
+        // Cooperative load of B tile into shared memory
+        #pragma unroll
+        for (int i = 0; i < B_LOADS_PER_THREAD; i++) {
+            int idx = tid + i * BLOCK_SIZE;
+            int b_row = idx / BLK_N;
+            int b_col = idx % BLK_N;
+            int global_row = t + b_row;
+            int global_col = block_col + b_col;
+            Bs[b_row][b_col] = (global_row < K && global_col < N)
+                                ? B[global_row * N + global_col] : 0.0f;
+        }
+
+        __syncthreads();
+
+        // Outer-product accumulation: TM+TN loads → TM×TN FMAs per k step
+        #pragma unroll
+        for (int k = 0; k < BLK_K; k++) {
+            float a_reg[TM], b_reg[TN];
+            #pragma unroll
+            for (int i = 0; i < TM; i++)
+                a_reg[i] = As[thread_row + i][k];
+            #pragma unroll
+            for (int j = 0; j < TN; j++)
+                b_reg[j] = Bs[k][thread_col + j];
+            #pragma unroll
+            for (int i = 0; i < TM; i++)
+                #pragma unroll
+                for (int j = 0; j < TN; j++)
+                    accum[i][j] += a_reg[i] * b_reg[j];
+        }
+
+        __syncthreads();
+    }
+
+    // Store results
+    #pragma unroll
+    for (int i = 0; i < TM; i++) {
+        int row = block_row + thread_row + i;
+        if (row >= M) continue;
+        #pragma unroll
+        for (int j = 0; j < TN; j++) {
+            int col = block_col + thread_col + j;
+            if (col < N)
+                C[row * N + col] = accum[i][j];
+        }
+    }
+}
+
+// Register-tiled GEMM with vectorized global memory loads (float4) and
+// smem padding to avoid bank conflicts.
+template <int BLK_M, int BLK_N, int BLK_K, int TM, int TN>
+__global__ void matmul_tiled_vec(const float* A, const float* B, float* C, int M, int K, int N) {
+    constexpr int PAD = 4;
+    __shared__ float As[BLK_M][BLK_K + PAD];
+    __shared__ float Bs[BLK_K][BLK_N + PAD];
+
+    int block_row = blockIdx.y * BLK_M;
+    int block_col = blockIdx.x * BLK_N;
+
+    constexpr int THREADS_M = BLK_M / TM;
+    constexpr int THREADS_N = BLK_N / TN;
+    int tid = threadIdx.x;
+    int thread_row = (tid / THREADS_N) * TM;
+    int thread_col = (tid % THREADS_N) * TN;
+
+    float accum[TM][TN] = {};
+
+    constexpr int BLOCK_SIZE = THREADS_M * THREADS_N;
+
+    // A tile: BLK_M × BLK_K = 128 × 8 = 1024 floats = 256 float4s
+    // Each thread loads 256/256 = 1 float4 for A
+    constexpr int A_FLOAT4S = (BLK_M * BLK_K) / 4;
+    constexpr int A_VEC_PER_THREAD = A_FLOAT4S / BLOCK_SIZE;
+
+    // B tile: BLK_K × BLK_N = 8 × 128 = 1024 floats = 256 float4s
+    constexpr int B_FLOAT4S = (BLK_K * BLK_N) / 4;
+    constexpr int B_VEC_PER_THREAD = B_FLOAT4S / BLOCK_SIZE;
+
+    for (int t = 0; t < K; t += BLK_K) {
+        // Vectorized load of A tile: treat A row as float4s along K dimension
+        // A is BLK_M×BLK_K, BLK_K=8 so 2 float4s per row, 128 rows = 256 float4s
+        #pragma unroll
+        for (int i = 0; i < A_VEC_PER_THREAD; i++) {
+            int vec_idx = tid + i * BLOCK_SIZE;
+            // Each row has BLK_K/4 = 2 float4s
+            int a_row = vec_idx / (BLK_K / 4);
+            int a_vec_col = vec_idx % (BLK_K / 4);
+            int a_col = a_vec_col * 4;
+            int global_row = block_row + a_row;
+            int global_col = t + a_col;
+            if (global_row < M && global_col + 3 < K) {
+                float4 val = reinterpret_cast<const float4*>(&A[global_row * K + global_col])[0];
+                As[a_row][a_col]     = val.x;
+                As[a_row][a_col + 1] = val.y;
+                As[a_row][a_col + 2] = val.z;
+                As[a_row][a_col + 3] = val.w;
+            } else {
+                // Scalar fallback for boundary
+                for (int s = 0; s < 4; s++) {
+                    int gc = global_col + s;
+                    As[a_row][a_col + s] = (global_row < M && gc < K) ? A[global_row * K + gc] : 0.0f;
+                }
+            }
+        }
+
+        // Vectorized load of B tile: B is BLK_K×BLK_N, vectorize along N (contiguous)
+        // Each row has BLK_N/4 = 32 float4s, 8 rows = 256 float4s
+        #pragma unroll
+        for (int i = 0; i < B_VEC_PER_THREAD; i++) {
+            int vec_idx = tid + i * BLOCK_SIZE;
+            int b_row = vec_idx / (BLK_N / 4);
+            int b_vec_col = vec_idx % (BLK_N / 4);
+            int b_col = b_vec_col * 4;
+            int global_row = t + b_row;
+            int global_col = block_col + b_col;
+            if (global_row < K && global_col + 3 < N) {
+                float4 val = reinterpret_cast<const float4*>(&B[global_row * N + global_col])[0];
+                Bs[b_row][b_col]     = val.x;
+                Bs[b_row][b_col + 1] = val.y;
+                Bs[b_row][b_col + 2] = val.z;
+                Bs[b_row][b_col + 3] = val.w;
+            } else {
+                for (int s = 0; s < 4; s++) {
+                    int gc = global_col + s;
+                    Bs[b_row][b_col + s] = (global_row < K && gc < N) ? B[global_row * N + gc] : 0.0f;
+                }
+            }
+        }
+
+        __syncthreads();
+
+        #pragma unroll
+        for (int k = 0; k < BLK_K; k++) {
+            float a_reg[TM], b_reg[TN];
+            #pragma unroll
+            for (int i = 0; i < TM; i++)
+                a_reg[i] = As[thread_row + i][k];
+            #pragma unroll
+            for (int j = 0; j < TN; j++)
+                b_reg[j] = Bs[k][thread_col + j];
+            #pragma unroll
+            for (int i = 0; i < TM; i++)
+                #pragma unroll
+                for (int j = 0; j < TN; j++)
+                    accum[i][j] += a_reg[i] * b_reg[j];
+        }
+
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int i = 0; i < TM; i++) {
+        int row = block_row + thread_row + i;
+        if (row >= M) continue;
+        #pragma unroll
+        for (int j = 0; j < TN; j++) {
+            int col = block_col + thread_col + j;
+            if (col < N)
+                C[row * N + col] = accum[i][j];
+        }
+    }
+}
+
+// Register-tiled GEMM with vectorized loads and double-buffered shared memory.
+// Overlaps global memory loads of the next K-tile with compute on the current tile.
+template <int BLK_M, int BLK_N, int BLK_K, int TM, int TN>
+__global__ void matmul_tiled_pipe(const float* A, const float* B, float* C, int M, int K, int N) {
+    constexpr int PAD = 4;
+    __shared__ float As[2][BLK_M][BLK_K + PAD];
+    __shared__ float Bs[2][BLK_K][BLK_N + PAD];
+
+    int block_row = blockIdx.y * BLK_M;
+    int block_col = blockIdx.x * BLK_N;
+
+    constexpr int THREADS_M = BLK_M / TM;
+    constexpr int THREADS_N = BLK_N / TN;
+    int tid = threadIdx.x;
+    int thread_row = (tid / THREADS_N) * TM;
+    int thread_col = (tid % THREADS_N) * TN;
+
+    float accum[TM][TN] = {};
+
+    constexpr int BLOCK_SIZE = THREADS_M * THREADS_N;
+    constexpr int A_FLOAT4S = (BLK_M * BLK_K) / 4;
+    constexpr int A_VEC_PER_THREAD = A_FLOAT4S / BLOCK_SIZE;
+    constexpr int B_FLOAT4S = (BLK_K * BLK_N) / 4;
+    constexpr int B_VEC_PER_THREAD = B_FLOAT4S / BLOCK_SIZE;
+
+    int num_tiles = (K + BLK_K - 1) / BLK_K;
+
+    // Helper lambdas for loading tiles into a specific buffer
+    auto load_A_tile = [&](int t, int buf) {
+        #pragma unroll
+        for (int i = 0; i < A_VEC_PER_THREAD; i++) {
+            int vec_idx = tid + i * BLOCK_SIZE;
+            int a_row = vec_idx / (BLK_K / 4);
+            int a_vec_col = vec_idx % (BLK_K / 4);
+            int a_col = a_vec_col * 4;
+            int global_row = block_row + a_row;
+            int global_col = t + a_col;
+            if (global_row < M && global_col + 3 < K) {
+                float4 val = reinterpret_cast<const float4*>(&A[global_row * K + global_col])[0];
+                As[buf][a_row][a_col]     = val.x;
+                As[buf][a_row][a_col + 1] = val.y;
+                As[buf][a_row][a_col + 2] = val.z;
+                As[buf][a_row][a_col + 3] = val.w;
+            } else {
+                for (int s = 0; s < 4; s++) {
+                    int gc = global_col + s;
+                    As[buf][a_row][a_col + s] = (global_row < M && gc < K) ? A[global_row * K + gc] : 0.0f;
+                }
+            }
+        }
+    };
+
+    auto load_B_tile = [&](int t, int buf) {
+        #pragma unroll
+        for (int i = 0; i < B_VEC_PER_THREAD; i++) {
+            int vec_idx = tid + i * BLOCK_SIZE;
+            int b_row = vec_idx / (BLK_N / 4);
+            int b_vec_col = vec_idx % (BLK_N / 4);
+            int b_col = b_vec_col * 4;
+            int global_row = t + b_row;
+            int global_col = block_col + b_col;
+            if (global_row < K && global_col + 3 < N) {
+                float4 val = reinterpret_cast<const float4*>(&B[global_row * N + global_col])[0];
+                Bs[buf][b_row][b_col]     = val.x;
+                Bs[buf][b_row][b_col + 1] = val.y;
+                Bs[buf][b_row][b_col + 2] = val.z;
+                Bs[buf][b_row][b_col + 3] = val.w;
+            } else {
+                for (int s = 0; s < 4; s++) {
+                    int gc = global_col + s;
+                    Bs[buf][b_row][b_col + s] = (global_row < K && gc < N) ? B[global_row * N + gc] : 0.0f;
+                }
+            }
+        }
+    };
+
+    auto compute_tile = [&](int buf) {
+        #pragma unroll
+        for (int k = 0; k < BLK_K; k++) {
+            float a_reg[TM], b_reg[TN];
+            #pragma unroll
+            for (int i = 0; i < TM; i++)
+                a_reg[i] = As[buf][thread_row + i][k];
+            #pragma unroll
+            for (int j = 0; j < TN; j++)
+                b_reg[j] = Bs[buf][k][thread_col + j];
+            #pragma unroll
+            for (int i = 0; i < TM; i++)
+                #pragma unroll
+                for (int j = 0; j < TN; j++)
+                    accum[i][j] += a_reg[i] * b_reg[j];
+        }
+    };
+
+    // Prologue: load first tile into buffer 0
+    load_A_tile(0, 0);
+    load_B_tile(0, 0);
+    __syncthreads();
+
+    for (int tile = 0; tile < num_tiles; tile++) {
+        int cur_buf = tile & 1;
+        int nxt_buf = 1 - cur_buf;
+
+        // Start loading next tile into the other buffer
+        if (tile + 1 < num_tiles) {
+            load_A_tile((tile + 1) * BLK_K, nxt_buf);
+            load_B_tile((tile + 1) * BLK_K, nxt_buf);
+        }
+
+        // Compute on current buffer (loads and compute overlap at the warp level
+        // because loads go through the memory pipeline while FMAs use the math pipe)
+        compute_tile(cur_buf);
+
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int i = 0; i < TM; i++) {
+        int row = block_row + thread_row + i;
+        if (row >= M) continue;
+        #pragma unroll
+        for (int j = 0; j < TN; j++) {
+            int col = block_col + thread_col + j;
+            if (col < N)
+                C[row * N + col] = accum[i][j];
+        }
+    }
+}
+
 // CuTe MMA kernel: global memory -> registers -> MMA (no shared memory)
 // Follows the CuTe GEMM tutorial pattern (sgemm_1).
 template <int BLK_M, int BLK_N, int BLK_K, class TiledMMA>
@@ -956,6 +1290,51 @@ int main(int argc, char** argv) {
         };
 
         run_benchmark("Tiled SMEM", tiled_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // Register-tiled kernel: each thread computes 8×8 outputs (pure FP32)
+    {
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
+        constexpr int TM = 8, TN = 8;
+        constexpr int THREADS = (BLK_M / TM) * (BLK_N / TN);  // 256
+        dim3 grid_reg((N + BLK_N - 1) / BLK_N, (M + BLK_M - 1) / BLK_M);
+
+        auto reg_op = [&]() {
+            matmul_tiled_reg<BLK_M, BLK_N, BLK_K, TM, TN>
+                <<<grid_reg, THREADS>>>(d_A, d_B, d_C, M, K, N);
+        };
+
+        run_benchmark("Tiled RegTile", reg_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // Register-tiled + vectorized loads + smem padding (pure FP32)
+    {
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
+        constexpr int TM = 8, TN = 8;
+        constexpr int THREADS = (BLK_M / TM) * (BLK_N / TN);
+        dim3 grid_vec((N + BLK_N - 1) / BLK_N, (M + BLK_M - 1) / BLK_M);
+
+        auto vec_op = [&]() {
+            matmul_tiled_vec<BLK_M, BLK_N, BLK_K, TM, TN>
+                <<<grid_vec, THREADS>>>(d_A, d_B, d_C, M, K, N);
+        };
+
+        run_benchmark("Tiled VecLoad", vec_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // Register-tiled + vectorized loads + double-buffered pipeline (pure FP32)
+    {
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
+        constexpr int TM = 8, TN = 8;
+        constexpr int THREADS = (BLK_M / TM) * (BLK_N / TN);
+        dim3 grid_pipe((N + BLK_N - 1) / BLK_N, (M + BLK_M - 1) / BLK_M);
+
+        auto pipe_op = [&]() {
+            matmul_tiled_pipe<BLK_M, BLK_N, BLK_K, TM, TN>
+                <<<grid_pipe, THREADS>>>(d_A, d_B, d_C, M, K, N);
+        };
+
+        run_benchmark("Tiled DblBuf", pipe_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
     }
 
     // CuTe simple MMA kernel (TF32, no shared memory)
