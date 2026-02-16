@@ -42,6 +42,34 @@ __global__ void matmul_naive(const float* A, const float* B, float* C, int M, in
     C[row * N + col] = sum;
 }
 
+// Shared memory tiled GEMM: load BLK×BLK tiles of A and B into smem,
+// compute partial dot products, slide along K.  Pure FP32, no tensor cores.
+template <int BLK>
+__global__ void matmul_tiled(const float* A, const float* B, float* C, int M, int K, int N) {
+    __shared__ float As[BLK][BLK];
+    __shared__ float Bs[BLK][BLK];
+
+    int row = blockIdx.y * BLK + threadIdx.y;
+    int col = blockIdx.x * BLK + threadIdx.x;
+
+    float sum = 0.0f;
+    for (int t = 0; t < K; t += BLK) {
+        // Collaborative load: each thread loads one element of each tile
+        As[threadIdx.y][threadIdx.x] = (row < M && t + threadIdx.x < K)
+                                        ? A[row * K + t + threadIdx.x] : 0.0f;
+        Bs[threadIdx.y][threadIdx.x] = (t + threadIdx.y < K && col < N)
+                                        ? B[(t + threadIdx.y) * N + col] : 0.0f;
+        __syncthreads();
+
+        for (int i = 0; i < BLK; i++)
+            sum += As[threadIdx.y][i] * Bs[i][threadIdx.x];
+        __syncthreads();
+    }
+
+    if (row < M && col < N)
+        C[row * N + col] = sum;
+}
+
 // CuTe MMA kernel: global memory -> registers -> MMA (no shared memory)
 // Follows the CuTe GEMM tutorial pattern (sgemm_1).
 template <int BLK_M, int BLK_N, int BLK_K, class TiledMMA>
@@ -916,6 +944,19 @@ int main(int argc, char** argv) {
 
     // Run
     run_benchmark("Naive", naive_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+
+    // Tiled shared memory kernel (pure FP32)
+    {
+        constexpr int BLK = 32;
+        dim3 block_tiled(BLK, BLK);
+        dim3 grid_tiled((N + BLK - 1) / BLK, (M + BLK - 1) / BLK);
+
+        auto tiled_op = [&]() {
+            matmul_tiled<BLK><<<grid_tiled, block_tiled>>>(d_A, d_B, d_C, M, K, N);
+        };
+
+        run_benchmark("Tiled SMEM", tiled_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
 
     // CuTe simple MMA kernel (TF32, no shared memory)
     {
