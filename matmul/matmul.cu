@@ -2,6 +2,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <vector>
+#include <string>
+#include <algorithm>
 #include <cublas_v2.h>
 #include <cute/tensor.hpp>
 #include <cute/algorithm/gemm.hpp>
@@ -1213,6 +1216,19 @@ namespace cutlass_ws {
     using StrideD = typename Gemm::GemmKernel::StrideD;
 }
 
+// Case-insensitive substring match: run kernel if any filter matches, or if no filters given.
+bool should_run(const char* name, const std::vector<std::string>& filters) {
+    if (filters.empty()) return true;
+    std::string lower_name(name);
+    std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+    for (const auto& f : filters) {
+        std::string lower_f(f);
+        std::transform(lower_f.begin(), lower_f.end(), lower_f.begin(), ::tolower);
+        if (lower_name.find(lower_f) != std::string::npos) return true;
+    }
+    return false;
+}
+
 // -------------------------------------------------------------------------
 // Main
 // -------------------------------------------------------------------------
@@ -1220,12 +1236,15 @@ namespace cutlass_ws {
 int main(int argc, char** argv) {
     int iterations = 100;
     bool benchmark_mode = false;
+    std::vector<std::string> kernel_filters;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--iterations") == 0) {
             if (i + 1 < argc) iterations = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--benchmark") == 0) {
             benchmark_mode = true;
+        } else if (strcmp(argv[i], "-k") == 0 || strcmp(argv[i], "--kernel") == 0) {
+            if (i + 1 < argc) kernel_filters.push_back(argv[++i]);
         }
     }
 
@@ -1272,15 +1291,16 @@ int main(int argc, char** argv) {
     dim3 block(16, 16);
     dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
 
-    auto naive_op = [&]() {
-        matmul_naive<<<grid, block>>>(d_A, d_B, d_C, M, K, N);
-    };
+    if (should_run("Naive", kernel_filters)) {
+        auto naive_op = [&]() {
+            matmul_naive<<<grid, block>>>(d_A, d_B, d_C, M, K, N);
+        };
 
-    // Run
-    run_benchmark("Naive", naive_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+        run_benchmark("Naive", naive_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
 
     // Tiled shared memory kernel (pure FP32)
-    {
+    if (should_run("Tiled SMEM", kernel_filters)) {
         constexpr int BLK = 32;
         dim3 block_tiled(BLK, BLK);
         dim3 grid_tiled((N + BLK - 1) / BLK, (M + BLK - 1) / BLK);
@@ -1293,7 +1313,7 @@ int main(int argc, char** argv) {
     }
 
     // Register-tiled kernel: each thread computes 8×8 outputs (pure FP32)
-    {
+    if (should_run("Tiled RegTile", kernel_filters)) {
         constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
         constexpr int TM = 8, TN = 8;
         constexpr int THREADS = (BLK_M / TM) * (BLK_N / TN);  // 256
@@ -1308,7 +1328,7 @@ int main(int argc, char** argv) {
     }
 
     // Register-tiled + vectorized loads + smem padding (pure FP32)
-    {
+    if (should_run("Tiled VecLoad", kernel_filters)) {
         constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
         constexpr int TM = 8, TN = 8;
         constexpr int THREADS = (BLK_M / TM) * (BLK_N / TN);
@@ -1323,7 +1343,7 @@ int main(int argc, char** argv) {
     }
 
     // Register-tiled + vectorized loads + double-buffered pipeline (pure FP32)
-    {
+    if (should_run("Tiled DblBuf", kernel_filters)) {
         constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 8;
         constexpr int TM = 8, TN = 8;
         constexpr int THREADS = (BLK_M / TM) * (BLK_N / TN);
@@ -1338,7 +1358,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe simple MMA kernel (TF32, no shared memory)
-    {
+    if (should_run("CuTe Simple MMA", kernel_filters)) {
         using tiled_mma_t = TiledMMA<
             MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
             Layout<Shape<_2, _2, _1>>   // 4 warps = 128 threads
@@ -1359,7 +1379,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe shared memory kernel with BLK_K=8
-    {
+    if (should_run("CuTe SMEM k=8", kernel_filters)) {
         using mma_t = TiledMMA<
             MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
             Layout<Shape<_2, _2, _1>>
@@ -1399,7 +1419,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe shared memory kernel with BLK_K=32
-    {
+    if (should_run("CuTe SMEM k=32", kernel_filters)) {
         using mma_t = TiledMMA<
             MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
             Layout<Shape<_2, _2, _1>>
@@ -1435,7 +1455,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe SM90 wgmma: reads A and B from swizzled smem (no smem->reg copy)
-    {
+    if (should_run("CuTe WGMMA", kernel_filters)) {
         using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
         auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _1, _1>>{});
         // 2 warp groups in M = 128×128 output, 256 threads
@@ -1470,7 +1490,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe SM90 wgmma with double-buffered pipeline: overlap cp.async with wgmma
-    {
+    if (should_run("CuTe WGMMA Pipe", kernel_filters)) {
         using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
         auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _1, _1>>{});
 
@@ -1510,7 +1530,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe SM90 wgmma pipe + CTA swizzle: same as above but with L2-friendly tile scheduling
-    {
+    if (should_run("CuTe WGMMA Pipe+Swiz", kernel_filters)) {
         using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
         auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _1, _1>>{});
 
@@ -1550,7 +1570,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe SM90 wgmma + TMA: hardware-accelerated loads, multi-stage pipeline
-    {
+    if (should_run("CuTe WGMMA TMA", kernel_filters)) {
         using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
         auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _1, _1>>{});
 
@@ -1606,7 +1626,7 @@ int main(int argc, char** argv) {
     }
 
     // CuTe SM90 wgmma + TMA: 128x256 tile (matching cuBLAS tile footprint)
-    {
+    if (should_run("CuTe WGMMA TMA 128x256", kernel_filters)) {
         using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;
         auto tiled_mma = make_tiled_mma(MmaAtom{}, Layout<Shape<_2, _2, _1>>{});
 
@@ -1658,7 +1678,7 @@ int main(int argc, char** argv) {
     }
 
     // CUTLASS 3.0 Warp-Specialized GEMM (example 48: TMA + warp specialization + persistent tile scheduler)
-    {
+    if (should_run("CUTLASS WS GEMM", kernel_filters)) {
         using namespace cutlass_ws;
 
         auto stride_a = cutlass::make_cute_packed_stride(StrideA{}, {M, K, 1});
@@ -1705,28 +1725,34 @@ int main(int argc, char** argv) {
     //   C^T = B^T * A^T  in column-major
     // A row-major MxK matrix is a column-major KxM matrix (no data movement).
     // So: cublasSgemm(N, M, K, B, N, A, K, C, N)
-    cublasHandle_t handle;
-    cublasCreate(&handle);
-    float alpha = 1.0f, beta = 0.0f;
+    if (should_run("cuBLAS", kernel_filters) || should_run("cuBLAS TF32", kernel_filters)) {
+        cublasHandle_t handle;
+        cublasCreate(&handle);
+        float alpha = 1.0f, beta = 0.0f;
 
-    auto cublas_op = [&]() {
-        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                    N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
-    };
+        if (should_run("cuBLAS", kernel_filters)) {
+            auto cublas_op = [&]() {
+                cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+                            N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
+            };
 
-    run_benchmark("cuBLAS", cublas_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+            run_benchmark("cuBLAS", cublas_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+        }
 
-    // cuBLAS with TF32 tensor cores
-    cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
+        // cuBLAS with TF32 tensor cores
+        if (should_run("cuBLAS TF32", kernel_filters)) {
+            cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
 
-    auto cublas_tf32_op = [&]() {
-        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                    N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
-    };
+            auto cublas_tf32_op = [&]() {
+                cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+                            N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
+            };
 
-    run_benchmark("cuBLAS TF32", cublas_tf32_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+            run_benchmark("cuBLAS TF32", cublas_tf32_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+        }
 
-    cublasDestroy(handle);
+        cublasDestroy(handle);
+    }
 
     cudaFree(d_A); cudaFree(d_B); cudaFree(d_C); cudaFree(d_B_T);
     free(h_A); free(h_B); free(h_C);
