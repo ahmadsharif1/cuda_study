@@ -1178,7 +1178,7 @@ namespace cutlass_ws {
     constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;
 
     using ElementAccumulator  = float;
-    using TileShape           = Shape<_128, _128, _32>;
+    using TileShape           = Shape<_128, _256, _32>;
     using ClusterShape        = Shape<_1, _1, _1>;
 
     using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
