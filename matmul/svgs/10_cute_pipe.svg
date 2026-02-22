@@ -1,0 +1,465 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 2000" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#27AE60"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+    <linearGradient id="buf0-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4A90D9;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#27AE60;stop-opacity:0.3"/>
+    </linearGradient>
+    <linearGradient id="buf1-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#8E44AD;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#E67E22;stop-opacity:0.3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="2000" fill="#FAFAFA" rx="8"/>
+
+  <!-- Title -->
+  <text x="700" y="35" text-anchor="middle" class="title">CuTe SMEM Double-Buffered Pipeline: Memory Access Patterns</text>
+  <text x="700" y="55" text-anchor="middle" class="small">BLK_M=128, BLK_N=128, BLK_K=32, SM80_16x8x8_F32TF32TF32F32_TN tiled _2x_2x_1, 128 threads, 2x shared memory</text>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: Double-Buffered Shared Memory Layout              -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="70" x2="1360" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. Double-Buffered Shared Memory Layout</text>
+
+  <g transform="translate(60, 115)">
+    <!-- Memory layout diagram -->
+    <text x="530" y="0" text-anchor="middle" class="subtitle">Shared Memory Allocation: smem[2 * (cosize(sA) + cosize(sB))]</text>
+
+    <!-- Buffer 0 -->
+    <g transform="translate(0, 25)">
+      <rect x="0" y="0" width="500" height="65" fill="url(#buf0-grad)" stroke="#4A90D9" stroke-width="2" rx="6"/>
+      <text x="250" y="18" text-anchor="middle" class="subtitle" fill="#2C3E50">Buffer 0</text>
+
+      <!-- sA0 -->
+      <rect x="10" y="25" width="230" height="30" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="125" y="45" text-anchor="middle" class="small bold" fill="#2C3E50">sA0 [128 x (32+4)] = 4608 floats</text>
+
+      <!-- sB0 -->
+      <rect x="250" y="25" width="240" height="30" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="3"/>
+      <text x="370" y="45" text-anchor="middle" class="small bold" fill="#2C3E50">sB0 [128 x (128+4)] = 16896 floats</text>
+    </g>
+
+    <!-- Buffer 1 -->
+    <g transform="translate(520, 25)">
+      <rect x="0" y="0" width="500" height="65" fill="url(#buf1-grad)" stroke="#8E44AD" stroke-width="2" rx="6"/>
+      <text x="250" y="18" text-anchor="middle" class="subtitle" fill="#2C3E50">Buffer 1</text>
+
+      <!-- sA1 -->
+      <rect x="10" y="25" width="230" height="30" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1.5" rx="3"/>
+      <text x="125" y="45" text-anchor="middle" class="small bold" fill="#2C3E50">sA1 [128 x (32+4)] = 4608 floats</text>
+
+      <!-- sB1 -->
+      <rect x="250" y="25" width="240" height="30" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" rx="3"/>
+      <text x="370" y="45" text-anchor="middle" class="small bold" fill="#2C3E50">sB1 [128 x (128+4)] = 16896 floats</text>
+    </g>
+
+    <!-- Offset annotations -->
+    <g transform="translate(0, 100)">
+      <text x="0" y="0" class="code">smem offsets:</text>
+      <text x="0" y="16" class="code" fill="#4A90D9">  sA0 = smem[0]                         sB0 = smem[cosize(sA)]</text>
+      <text x="0" y="32" class="code" fill="#8E44AD">  sA1 = smem[smem_one]                   sB1 = smem[smem_one + cosize(sA)]</text>
+      <text x="0" y="48" class="code">  smem_one = cosize(sA) + cosize(sB)</text>
+    </g>
+
+    <!-- Size calculation -->
+    <g transform="translate(600, 100)">
+      <rect width="420" height="72" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="210" y="18" text-anchor="middle" class="subtitle">Total Shared Memory</text>
+      <text x="15" y="38" class="code">Per buffer: (4608 + 16896) x 4B = 86,016 B = 84 KB</text>
+      <text x="15" y="55" class="code bold" fill="#C0392B">Total: 2 x 84 KB = 168 KB (needs extended smem config)</text>
+    </g>
+
+    <!-- Copy + MMA partition note -->
+    <g transform="translate(0, 175)">
+      <rect width="1020" height="42" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="4"/>
+      <text x="510" y="17" text-anchor="middle" class="small bold" fill="#2C3E50">Each buffer gets its own copy and MMA partition tensors:</text>
+      <text x="510" y="34" text-anchor="middle" class="code" fill="#333">tAsA0/tAsA1 (copy dest), tBsB0/tBsB1 (copy dest), tCsA0/tCsA1 (MMA src A), tCsB0/tCsB1 (MMA src B)</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: Pipeline Timeline                                 -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="365" x2="1360" y2="365" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="390" class="section-title">2. Pipeline Timeline: Overlapped Load and Compute</text>
+
+  <g transform="translate(60, 410)">
+    <!-- Timeline header -->
+    <text x="80" y="12" text-anchor="middle" class="small bold" fill="#555">Stage</text>
+    <text x="340" y="12" text-anchor="middle" class="small bold" fill="#4A90D9">cp_async Pipe (Global -> Shared)</text>
+    <text x="720" y="12" text-anchor="middle" class="small bold" fill="#E74C3C">MMA Pipe (Shared -> Reg -> Compute)</text>
+    <text x="1050" y="12" text-anchor="middle" class="small bold" fill="#555">Sync</text>
+
+    <line x1="0" y1="20" x2="1200" y2="20" stroke="#DDD" stroke-width="1"/>
+
+    <!-- Prologue -->
+    <rect x="0" y="25" width="155" height="35" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="4"/>
+    <text x="78" y="47" text-anchor="middle" class="small bold" fill="#7D6608">Prologue</text>
+
+    <rect x="160" y="25" width="380" height="35" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="350" y="47" text-anchor="middle" class="code" fill="#2C3E50">Load k=0 -> buf0 (cp_async A0, B0)</text>
+
+    <rect x="900" y="25" width="300" height="35" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="1050" y="47" text-anchor="middle" class="code" fill="#555">fence + wait&lt;0&gt; + sync</text>
+
+    <line x1="0" y1="68" x2="1200" y2="68" stroke="#EEE" stroke-width="1"/>
+
+    <!-- k=0 -->
+    <rect x="0" y="75" width="155" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="78" y="95" text-anchor="middle" class="small bold" fill="#333">k=0 (even)</text>
+    <text x="78" y="110" text-anchor="middle" class="tiny" fill="#555">compute buf0</text>
+
+    <rect x="160" y="75" width="380" height="50" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1.5" rx="4"/>
+    <text x="350" y="95" text-anchor="middle" class="code" fill="#2C3E50">Load k=1 -> buf1 (cp_async A1, B1)</text>
+    <text x="350" y="110" text-anchor="middle" class="tiny" fill="#8E44AD">non-blocking: issues to async unit</text>
+
+    <rect x="550" y="75" width="340" height="50" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="720" y="95" text-anchor="middle" class="code" fill="#C0392B">copy(sA0->rA) + copy(sB0->rB) + gemm</text>
+    <text x="720" y="110" text-anchor="middle" class="tiny" fill="#E74C3C">crunching buf0 data in registers</text>
+
+    <rect x="900" y="75" width="300" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="1050" y="95" text-anchor="middle" class="code" fill="#555">fence + wait&lt;0&gt; + sync</text>
+    <text x="1050" y="110" text-anchor="middle" class="tiny" fill="#555">buf1 ready after this</text>
+
+    <line x1="0" y1="133" x2="1200" y2="133" stroke="#EEE" stroke-width="1"/>
+
+    <!-- k=1 -->
+    <rect x="0" y="140" width="155" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="78" y="160" text-anchor="middle" class="small bold" fill="#333">k=1 (odd)</text>
+    <text x="78" y="175" text-anchor="middle" class="tiny" fill="#555">compute buf1</text>
+
+    <rect x="160" y="140" width="380" height="50" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="350" y="160" text-anchor="middle" class="code" fill="#2C3E50">Load k=2 -> buf0 (cp_async A0, B0)</text>
+    <text x="350" y="175" text-anchor="middle" class="tiny" fill="#4A90D9">non-blocking: buf0 was consumed at k=0</text>
+
+    <rect x="550" y="140" width="340" height="50" fill="#F5EEF8" stroke="#8E44AD" stroke-width="1.5" rx="4"/>
+    <text x="720" y="160" text-anchor="middle" class="code" fill="#6C3483">copy(sA1->rA) + copy(sB1->rB) + gemm</text>
+    <text x="720" y="175" text-anchor="middle" class="tiny" fill="#8E44AD">crunching buf1 data in registers</text>
+
+    <rect x="900" y="140" width="300" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="1050" y="160" text-anchor="middle" class="code" fill="#555">fence + wait&lt;0&gt; + sync</text>
+    <text x="1050" y="175" text-anchor="middle" class="tiny" fill="#555">buf0 ready after this</text>
+
+    <line x1="0" y1="198" x2="1200" y2="198" stroke="#EEE" stroke-width="1"/>
+
+    <!-- k=2 -->
+    <rect x="0" y="205" width="155" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="78" y="225" text-anchor="middle" class="small bold" fill="#333">k=2 (even)</text>
+    <text x="78" y="240" text-anchor="middle" class="tiny" fill="#555">compute buf0</text>
+
+    <rect x="160" y="205" width="380" height="50" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1.5" rx="4"/>
+    <text x="350" y="225" text-anchor="middle" class="code" fill="#2C3E50">Load k=3 -> buf1 (cp_async A1, B1)</text>
+
+    <rect x="550" y="205" width="340" height="50" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="720" y="225" text-anchor="middle" class="code" fill="#C0392B">copy(sA0->rA) + copy(sB0->rB) + gemm</text>
+
+    <rect x="900" y="205" width="300" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="1050" y="225" text-anchor="middle" class="code" fill="#555">fence + wait&lt;0&gt; + sync</text>
+
+    <line x1="0" y1="263" x2="1200" y2="263" stroke="#EEE" stroke-width="1"/>
+
+    <!-- dots -->
+    <text x="600" y="283" text-anchor="middle" font-size="16" fill="#888">. . .    (alternating buf0 and buf1)    . . .</text>
+
+    <line x1="0" y1="298" x2="1200" y2="298" stroke="#EEE" stroke-width="1"/>
+
+    <!-- Last k -->
+    <rect x="0" y="305" width="155" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="78" y="325" text-anchor="middle" class="small bold" fill="#333">last k</text>
+    <text x="78" y="340" text-anchor="middle" class="tiny" fill="#555">no next load</text>
+
+    <rect x="160" y="305" width="380" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="350" y="330" text-anchor="middle" class="code" fill="#888">(no load -- k+1 >= k_max)</text>
+
+    <rect x="550" y="305" width="340" height="50" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="720" y="330" text-anchor="middle" class="code" fill="#C0392B">compute on last buffer</text>
+
+    <rect x="900" y="305" width="300" height="50" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1" rx="4"/>
+    <text x="1050" y="330" text-anchor="middle" class="code" fill="#555">__syncthreads()</text>
+
+    <!-- Overlap visualization -->
+    <g transform="translate(0, 375)">
+      <rect width="1200" height="55" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" rx="6"/>
+      <text x="600" y="18" text-anchor="middle" class="subtitle" fill="#1E8449">Key: cp_async issues are non-blocking</text>
+      <text x="600" y="36" text-anchor="middle" class="code" fill="#1E8449">While MMA crunches buffer 0's data in registers, buffer 1 is being filled from global memory by the async copy unit.</text>
+      <text x="600" y="50" text-anchor="middle" class="code" fill="#1E8449">cp_async_fence() batches outstanding copies; cp_async_wait&lt;0&gt;() blocks until all complete.</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Per-Buffer Access Pattern                         -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="860" x2="1360" y2="860" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="885" class="section-title">3. Per-Buffer Access Pattern (Identical to CuTe SMEM Single Buffer)</text>
+
+  <g transform="translate(60, 905)">
+    <!-- cp_async coalescing -->
+    <rect x="0" y="0" width="630" height="160" fill="white" stroke="#4A90D9" stroke-width="1.5" rx="6"/>
+    <text x="315" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">cp_async Global -> Shared (per buffer)</text>
+    <line x1="10" y1="30" x2="620" y2="30" stroke="#EBF5FB"/>
+
+    <text x="15" y="48" class="code bold" fill="#4A90D9">Copy A (128-bit, 16x8 thread layout, _1x_4 value):</text>
+    <text x="15" y="63" class="code">  128 threads load A[128x32]: each thread loads 4 floats (128 bits)</text>
+    <text x="15" y="78" class="code">  Thread layout (16,8) stride (8,1): warp reads 32 consecutive floats per row</text>
+    <text x="15" y="93" class="code" fill="#1E8449">  -> 4 cache lines per warp, row-contiguous in K-dimension</text>
+
+    <text x="15" y="115" class="code bold" fill="#27AE60">Copy B (128-bit, 32x4 thread layout, _4x_1 value):</text>
+    <text x="15" y="130" class="code">  128 threads load B[128x32]: each thread loads 4 floats (128 bits)</text>
+    <text x="15" y="145" class="code" fill="#1E8449">  -> 4 coalesced cache lines per warp, column-contiguous in N-dimension</text>
+
+    <!-- MMA partitioning -->
+    <rect x="650" y="0" width="600" height="160" fill="white" stroke="#E67E22" stroke-width="1.5" rx="6"/>
+    <text x="950" y="22" text-anchor="middle" class="subtitle" fill="#E67E22">MMA Partitioning (per buffer)</text>
+    <line x1="660" y1="30" x2="1240" y2="30" stroke="#FDEBD0"/>
+
+    <text x="665" y="48" class="code bold" fill="#E67E22">SM80_16x8x8_F32TF32TF32F32_TN, tiled _2x_2x_1:</text>
+    <text x="665" y="63" class="code">  MMA atom: 16x8x8 (16 rows A, 8 cols B, 8 K-steps)</text>
+    <text x="665" y="78" class="code">  Tiled 2x2x1: covers 32x16 output per warp</text>
+    <text x="665" y="93" class="code">  4 warps x 32 threads = 128 threads total</text>
+    <text x="665" y="115" class="code bold">Per k-tile (BLK_K=32):</text>
+    <text x="665" y="130" class="code">  4 MMA k-groups (32/8 = 4 mma.sync calls)</text>
+    <text x="665" y="145" class="code">  Each: partition_A -> tCrA, partition_B -> tCrB -> gemm</text>
+
+    <!-- Note -->
+    <g transform="translate(0, 175)">
+      <rect width="1250" height="42" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="625" y="17" text-anchor="middle" class="small bold" fill="#7D6608">Double buffering does NOT change the access pattern -- only WHEN accesses happen</text>
+      <text x="625" y="34" text-anchor="middle" class="small" fill="#7D6608">Each buffer has identical layout to cute_smem's single buffer: padded smem (stride BLK_K+4 for A, BLK_N+4 for B)</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: Overlap Benefit Analysis                          -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1145" x2="1360" y2="1145" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1170" class="section-title">4. Overlap Benefit: Serial vs Pipelined Execution</text>
+
+  <g transform="translate(60, 1195)">
+    <!-- Serial (cute_smem) timeline -->
+    <text x="0" y="0" class="subtitle" fill="#C0392B">Without Pipeline (cute_smem): Fully Serial</text>
+
+    <g transform="translate(0, 15)">
+      <!-- k=0 -->
+      <rect x="0" y="0" width="180" height="40" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="90" y="15" text-anchor="middle" class="tiny bold" fill="#2C3E50">Load k=0</text>
+      <text x="90" y="30" text-anchor="middle" class="tiny" fill="#555">T_load</text>
+      <rect x="180" y="0" width="20" height="40" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.8" rx="2"/>
+      <text x="190" y="25" text-anchor="middle" class="tiny" fill="#7D6608">W</text>
+      <rect x="200" y="0" width="140" height="40" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="270" y="15" text-anchor="middle" class="tiny bold" fill="#C0392B">Compute k=0</text>
+      <text x="270" y="30" text-anchor="middle" class="tiny" fill="#555">T_compute</text>
+
+      <!-- k=1 -->
+      <rect x="340" y="0" width="180" height="40" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="430" y="15" text-anchor="middle" class="tiny bold" fill="#2C3E50">Load k=1</text>
+      <text x="430" y="30" text-anchor="middle" class="tiny" fill="#555">T_load</text>
+      <rect x="520" y="0" width="20" height="40" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.8" rx="2"/>
+      <text x="530" y="25" text-anchor="middle" class="tiny" fill="#7D6608">W</text>
+      <rect x="540" y="0" width="140" height="40" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="610" y="15" text-anchor="middle" class="tiny bold" fill="#C0392B">Compute k=1</text>
+      <text x="610" y="30" text-anchor="middle" class="tiny" fill="#555">T_compute</text>
+
+      <!-- k=2 dots -->
+      <text x="710" y="25" text-anchor="middle" font-size="14" fill="#888">...</text>
+
+      <!-- Total time -->
+      <line x1="0" y1="50" x2="680" y2="50" stroke="#C0392B" stroke-width="1.5" marker-end="url(#arrowhead-red)"/>
+      <text x="340" y="65" text-anchor="middle" class="small bold" fill="#C0392B">Total = K/BLK_K x (T_load + T_wait + T_compute)</text>
+    </g>
+
+    <!-- Pipelined (cute_pipe) timeline -->
+    <text x="0" y="100" class="subtitle" fill="#1E8449">With Pipeline (cute_pipe): Overlapped Load + Compute</text>
+
+    <g transform="translate(0, 115)">
+      <!-- Two tracks: load track (top) and compute track (bottom) -->
+      <text x="-5" y="15" text-anchor="end" class="tiny bold" fill="#4A90D9">Load</text>
+      <text x="-5" y="55" text-anchor="end" class="tiny bold" fill="#E74C3C">Compute</text>
+
+      <!-- Prologue load -->
+      <rect x="0" y="0" width="120" height="30" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="60" y="12" text-anchor="middle" class="tiny bold" fill="#2C3E50">Load k=0</text>
+      <text x="60" y="25" text-anchor="middle" class="tiny" fill="#555">buf0</text>
+
+      <!-- Wait -->
+      <rect x="120" y="0" width="30" height="30" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.8" rx="2"/>
+      <text x="135" y="20" text-anchor="middle" class="tiny" fill="#7D6608">W</text>
+
+      <!-- k=0: load k=1 while computing k=0 -->
+      <rect x="150" y="0" width="120" height="30" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1.5" rx="3"/>
+      <text x="210" y="12" text-anchor="middle" class="tiny bold" fill="#2C3E50">Load k=1</text>
+      <text x="210" y="25" text-anchor="middle" class="tiny" fill="#8E44AD">buf1</text>
+
+      <rect x="150" y="35" width="140" height="30" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="220" y="47" text-anchor="middle" class="tiny bold" fill="#C0392B">Compute k=0</text>
+      <text x="220" y="60" text-anchor="middle" class="tiny" fill="#555">buf0</text>
+
+      <!-- Overlap bracket -->
+      <rect x="150" y="-3" width="140" height="71" fill="none" stroke="#27AE60" stroke-width="2" stroke-dasharray="4,2" rx="4"/>
+      <text x="220" y="80" text-anchor="middle" class="tiny bold" fill="#1E8449">OVERLAP</text>
+
+      <!-- Wait -->
+      <rect x="290" y="0" width="20" height="30" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.8" rx="2"/>
+
+      <!-- k=1: load k=2 while computing k=1 -->
+      <rect x="310" y="0" width="120" height="30" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="370" y="12" text-anchor="middle" class="tiny bold" fill="#2C3E50">Load k=2</text>
+      <text x="370" y="25" text-anchor="middle" class="tiny" fill="#4A90D9">buf0</text>
+
+      <rect x="310" y="35" width="140" height="30" fill="#F5EEF8" stroke="#8E44AD" stroke-width="1.5" rx="3"/>
+      <text x="380" y="47" text-anchor="middle" class="tiny bold" fill="#6C3483">Compute k=1</text>
+      <text x="380" y="60" text-anchor="middle" class="tiny" fill="#8E44AD">buf1</text>
+
+      <rect x="310" y="-3" width="140" height="71" fill="none" stroke="#27AE60" stroke-width="2" stroke-dasharray="4,2" rx="4"/>
+
+      <!-- Wait -->
+      <rect x="450" y="0" width="20" height="30" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.8" rx="2"/>
+
+      <!-- dots -->
+      <text x="500" y="35" text-anchor="middle" font-size="14" fill="#888">...</text>
+
+      <!-- Last k -->
+      <rect x="540" y="35" width="140" height="30" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="610" y="50" text-anchor="middle" class="tiny bold" fill="#C0392B">Compute last</text>
+
+      <!-- Total time -->
+      <line x1="0" y1="90" x2="680" y2="90" stroke="#27AE60" stroke-width="1.5" marker-end="url(#arrowhead-green)"/>
+      <text x="340" y="105" text-anchor="middle" class="small bold" fill="#1E8449">Total = T_load + K/BLK_K x max(T_load, T_compute)</text>
+    </g>
+
+    <!-- Analysis box -->
+    <g transform="translate(0, 245)">
+      <rect width="1250" height="130" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+      <text x="625" y="22" text-anchor="middle" class="subtitle">Performance Analysis</text>
+      <line x1="10" y1="30" x2="1240" y2="30" stroke="#EEE"/>
+
+      <text x="15" y="48" class="code bold" fill="#1E8449">If compute-bound (T_compute > T_load):</text>
+      <text x="30" y="63" class="code" fill="#1E8449">Load is completely hidden! Total time dominated by compute. Speedup = (T_load + T_compute) / T_compute</text>
+
+      <text x="15" y="85" class="code bold" fill="#4A90D9">If memory-bound (T_load > T_compute):</text>
+      <text x="30" y="100" class="code" fill="#4A90D9">Compute fills the bubbles during loads. Total time dominated by load. Speedup = (T_load + T_compute) / T_load</text>
+
+      <text x="15" y="120" class="code bold" fill="#C0392B">Trade-off: 2x shared memory usage (168 KB vs 84 KB) -- may reduce occupancy</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: Data Flow Summary                                 -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1610" x2="1360" y2="1610" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1635" class="section-title">5. Data Flow Summary</text>
+
+  <g transform="translate(60, 1660)">
+    <!-- Alternating pipeline visualization -->
+    <g transform="translate(0, 0)">
+      <!-- Buffer 0 path -->
+      <rect x="0" y="0" width="550" height="110" fill="url(#buf0-grad)" stroke="#4A90D9" stroke-width="2" rx="8"/>
+      <text x="275" y="20" text-anchor="middle" class="subtitle" fill="#2C3E50">Buffer 0 Path (even k iterations)</text>
+
+      <rect x="15" y="30" width="140" height="35" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="85" y="52" text-anchor="middle" class="small bold" fill="#2C3E50">cp_async -> sA0,sB0</text>
+
+      <path d="M165,48 L185,48" class="arrow-bold"/>
+
+      <rect x="195" y="30" width="140" height="35" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" rx="4"/>
+      <text x="265" y="52" text-anchor="middle" class="small bold" fill="#2C3E50">sA0->rA, sB0->rB</text>
+
+      <path d="M345,48 L365,48" class="arrow-bold"/>
+
+      <rect x="375" y="30" width="155" height="35" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="452" y="52" text-anchor="middle" class="small bold" fill="#2C3E50">gemm(rA, rB, rC)</text>
+
+      <text x="275" y="88" text-anchor="middle" class="code" fill="#4A90D9">k=0, k=2, k=4, ...</text>
+    </g>
+
+    <!-- Alternation arrows -->
+    <text x="575" y="60" text-anchor="middle" font-size="28" fill="#333">&#8644;</text>
+    <text x="575" y="80" text-anchor="middle" class="tiny bold" fill="#333">alternate</text>
+
+    <g transform="translate(610, 0)">
+      <!-- Buffer 1 path -->
+      <rect x="0" y="0" width="550" height="110" fill="url(#buf1-grad)" stroke="#8E44AD" stroke-width="2" rx="8"/>
+      <text x="275" y="20" text-anchor="middle" class="subtitle" fill="#2C3E50">Buffer 1 Path (odd k iterations)</text>
+
+      <rect x="15" y="30" width="140" height="35" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1.5" rx="4"/>
+      <text x="85" y="52" text-anchor="middle" class="small bold" fill="#2C3E50">cp_async -> sA1,sB1</text>
+
+      <path d="M165,48 L185,48" class="arrow-bold"/>
+
+      <rect x="195" y="30" width="140" height="35" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" rx="4"/>
+      <text x="265" y="52" text-anchor="middle" class="small bold" fill="#2C3E50">sA1->rA, sB1->rB</text>
+
+      <path d="M345,48 L365,48" class="arrow-bold"/>
+
+      <rect x="375" y="30" width="155" height="35" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="452" y="52" text-anchor="middle" class="small bold" fill="#2C3E50">gemm(rA, rB, rC)</text>
+
+      <text x="275" y="88" text-anchor="middle" class="code" fill="#8E44AD">k=1, k=3, k=5, ...</text>
+    </g>
+
+    <!-- Final store -->
+    <g transform="translate(400, 125)">
+      <path d="M190,0 L190,20" class="arrow-bold"/>
+      <rect x="60" y="25" width="260" height="40" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="6"/>
+      <text x="190" y="50" text-anchor="middle" class="subtitle" fill="#1E8449">copy(tCrC, tCgC) -- Store C to Global</text>
+    </g>
+
+    <!-- Key insights -->
+    <g transform="translate(0, 195)">
+      <rect width="1200" height="100" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+      <text x="600" y="22" text-anchor="middle" class="subtitle">Key Takeaways</text>
+      <line x1="10" y1="30" x2="1190" y2="30" stroke="#EEE"/>
+      <text x="15" y="48" class="code">1. Same per-block pipeline as cute_smem but with OVERLAPPED stages via double buffering</text>
+      <text x="15" y="64" class="code" fill="#1E8449">2. While MMA crunches buffer N, cp_async fills buffer (1-N) from global memory -- load latency hidden</text>
+      <text x="15" y="80" class="code" fill="#8E44AD">3. This pattern mirrors the hand-written tiled_pipe kernel but uses CuTe abstractions</text>
+      <text x="15" y="96" class="code" fill="#C0392B">4. Cost: 2x shared memory, potential occupancy reduction -- but compute throughput improves significantly</text>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1975" text-anchor="middle" class="tiny" fill="#AAA">matmul_cute_pipe&lt;128, 128, 32&gt; -- Double-Buffered Pipeline for Overlapped Load and Compute</text>
+</svg>

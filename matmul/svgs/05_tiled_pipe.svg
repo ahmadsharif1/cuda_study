@@ -1,0 +1,558 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1900" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#27AE60"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+    <linearGradient id="load-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4A90D9;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#27AE60;stop-opacity:0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1500" height="1900" fill="#FAFAFA" rx="8"/>
+
+  <!-- ============================================================ -->
+  <!-- Title                                                        -->
+  <!-- ============================================================ -->
+  <text x="750" y="35" text-anchor="middle" class="title">Double-Buffered Pipeline GEMM: Overlapping Load &amp; Compute</text>
+  <text x="750" y="55" text-anchor="middle" class="small">BLK_M=128, BLK_N=128, BLK_K=8, TM=8, TN=8, 256 threads, PAD=4, 2x shared memory buffers</text>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: Double-Buffered Shared Memory                     -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="70" x2="1460" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. Double-Buffered Shared Memory Layout</text>
+  <text x="50" y="113" class="small" fill="#C0392B">KEY DIFFERENCE: 2x shared memory buffers enable overlapping loads with compute</text>
+
+  <!-- Buffer 0 -->
+  <g transform="translate(80, 135)">
+    <rect x="0" y="0" width="520" height="140" fill="#EBF5FB" stroke="#4A90D9" stroke-width="2" rx="8"/>
+    <text x="260" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">Buffer 0 (buf = 0)</text>
+    <line x1="10" y1="30" x2="510" y2="30" stroke="#4A90D9" opacity="0.3"/>
+
+    <!-- As[0] -->
+    <g transform="translate(20, 40)">
+      <text x="50" y="0" text-anchor="middle" class="small bold" fill="#4A90D9">As[0][128][12]</text>
+      <rect x="0" y="8" width="100" height="80" class="a-light" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="50" y="30" text-anchor="middle" class="tiny">128 rows</text>
+      <text x="50" y="44" text-anchor="middle" class="tiny">x 12 cols</text>
+      <text x="50" y="58" text-anchor="middle" class="tiny">(8 + PAD=4)</text>
+      <text x="50" y="78" text-anchor="middle" class="tiny" fill="#4A90D9">6,144 floats</text>
+    </g>
+
+    <!-- Bs[0] -->
+    <g transform="translate(160, 40)">
+      <text x="50" y="0" text-anchor="middle" class="small bold" fill="#27AE60">Bs[0][8][132]</text>
+      <rect x="0" y="8" width="100" height="80" class="b-light" stroke="#27AE60" stroke-width="1.5" rx="3"/>
+      <text x="50" y="30" text-anchor="middle" class="tiny">8 rows</text>
+      <text x="50" y="44" text-anchor="middle" class="tiny">x 132 cols</text>
+      <text x="50" y="58" text-anchor="middle" class="tiny">(128 + PAD=4)</text>
+      <text x="50" y="78" text-anchor="middle" class="tiny" fill="#27AE60">1,056 floats</text>
+    </g>
+
+    <!-- Usage annotation -->
+    <g transform="translate(310, 45)">
+      <text x="0" y="0" class="code bold">While computing on buf 0:</text>
+      <text x="0" y="16" class="code">  a_reg[i] = As[0][row+i][k]</text>
+      <text x="0" y="30" class="code">  b_reg[j] = Bs[0][k][col+j]</text>
+      <text x="0" y="52" class="code bold" fill="#E67E22">Next tile loads go into buf 1</text>
+    </g>
+  </g>
+
+  <!-- Buffer 1 -->
+  <g transform="translate(680, 135)">
+    <rect x="0" y="0" width="520" height="140" fill="#FDEBD0" stroke="#E67E22" stroke-width="2" rx="8"/>
+    <text x="260" y="22" text-anchor="middle" class="subtitle" fill="#E67E22">Buffer 1 (buf = 1)</text>
+    <line x1="10" y1="30" x2="510" y2="30" stroke="#E67E22" opacity="0.3"/>
+
+    <!-- As[1] -->
+    <g transform="translate(20, 40)">
+      <text x="50" y="0" text-anchor="middle" class="small bold" fill="#4A90D9">As[1][128][12]</text>
+      <rect x="0" y="8" width="100" height="80" class="a-light" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="50" y="30" text-anchor="middle" class="tiny">128 rows</text>
+      <text x="50" y="44" text-anchor="middle" class="tiny">x 12 cols</text>
+      <text x="50" y="58" text-anchor="middle" class="tiny">(8 + PAD=4)</text>
+      <text x="50" y="78" text-anchor="middle" class="tiny" fill="#4A90D9">6,144 floats</text>
+    </g>
+
+    <!-- Bs[1] -->
+    <g transform="translate(160, 40)">
+      <text x="50" y="0" text-anchor="middle" class="small bold" fill="#27AE60">Bs[1][8][132]</text>
+      <rect x="0" y="8" width="100" height="80" class="b-light" stroke="#27AE60" stroke-width="1.5" rx="3"/>
+      <text x="50" y="30" text-anchor="middle" class="tiny">8 rows</text>
+      <text x="50" y="44" text-anchor="middle" class="tiny">x 132 cols</text>
+      <text x="50" y="58" text-anchor="middle" class="tiny">(128 + PAD=4)</text>
+      <text x="50" y="78" text-anchor="middle" class="tiny" fill="#27AE60">1,056 floats</text>
+    </g>
+
+    <!-- Usage annotation -->
+    <g transform="translate(310, 45)">
+      <text x="0" y="0" class="code bold">While computing on buf 1:</text>
+      <text x="0" y="16" class="code">  a_reg[i] = As[1][row+i][k]</text>
+      <text x="0" y="30" class="code">  b_reg[j] = Bs[1][k][col+j]</text>
+      <text x="0" y="52" class="code bold" fill="#4A90D9">Next tile loads go into buf 0</text>
+    </g>
+  </g>
+
+  <!-- Total smem -->
+  <g transform="translate(80, 290)">
+    <rect x="0" y="0" width="400" height="28" fill="#FCF3CF" stroke="#F1C40F" rx="4"/>
+    <text x="200" y="19" text-anchor="middle" class="small bold" fill="#7D6608">Total shared memory: 2 x (6144 + 1056) x 4B = 57.6 KB (2x the tiled_vec usage)</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: Pipeline Timeline (KEY VISUALIZATION)             -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="340" x2="1460" y2="340" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="370" class="section-title">2. Pipeline Timeline: Overlapping Memory Loads with Compute</text>
+  <text x="50" y="388" class="small" fill="#C0392B">KEY VISUALIZATION: Load of tile N+1 uses LSU (memory pipe), FMAs use FP pipe -- independent HW units overlap within same warp</text>
+
+  <g transform="translate(80, 410)">
+    <!-- Timeline header -->
+    <text x="0" y="0" class="small bold">Phase</text>
+    <text x="160" y="0" class="small bold" fill="#4A90D9">Memory Pipe (LSU)</text>
+    <text x="520" y="0" class="small bold" fill="#E74C3C">Math Pipe (FMA)</text>
+    <text x="900" y="0" class="small bold">Sync</text>
+    <text x="1050" y="0" class="small bold">Active Buffer</text>
+    <line x1="0" y1="8" x2="1300" y2="8" stroke="#DDD" stroke-width="1"/>
+
+    <!-- Prologue -->
+    <text x="0" y="30" class="code bold">Prologue</text>
+    <rect x="160" y="15" width="300" height="28" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="310" y="34" text-anchor="middle" class="small" fill="white" font-weight="bold">Load tile 0 --> buf 0</text>
+    <rect x="520" y="15" width="300" height="28" fill="#ECF0F1" stroke="#DDD" stroke-width="1" rx="4"/>
+    <text x="670" y="34" text-anchor="middle" class="tiny" fill="#999">(idle)</text>
+    <text x="900" y="34" class="code">__syncthreads()</text>
+    <text x="1050" y="34" class="code">compute: --</text>
+
+    <!-- Iteration 0 -->
+    <text x="0" y="68" class="code bold">Iter 0</text>
+    <rect x="160" y="53" width="300" height="28" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="310" y="72" text-anchor="middle" class="small" fill="white" font-weight="bold">Load tile 1 --> buf 1</text>
+    <rect x="520" y="53" width="300" height="28" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="670" y="72" text-anchor="middle" class="small" fill="white" font-weight="bold">Compute on buf 0</text>
+    <text x="900" y="72" class="code">__syncthreads()</text>
+    <text x="1050" y="72" class="code" fill="#4A90D9">compute: buf0</text>
+
+    <!-- Overlapping indicator for iter 0 -->
+    <rect x="480" y="53" width="40" height="28" fill="#F1C40F" opacity="0.4" rx="2"/>
+    <text x="500" y="72" text-anchor="middle" class="tiny" fill="#7D6608" font-weight="bold">||</text>
+
+    <!-- Iteration 1 -->
+    <text x="0" y="106" class="code bold">Iter 1</text>
+    <rect x="160" y="91" width="300" height="28" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="310" y="110" text-anchor="middle" class="small" fill="white" font-weight="bold">Load tile 2 --> buf 0</text>
+    <rect x="520" y="91" width="300" height="28" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="670" y="110" text-anchor="middle" class="small" fill="white" font-weight="bold">Compute on buf 1</text>
+    <text x="900" y="110" class="code">__syncthreads()</text>
+    <text x="1050" y="110" class="code" fill="#E67E22">compute: buf1</text>
+
+    <rect x="480" y="91" width="40" height="28" fill="#F1C40F" opacity="0.4" rx="2"/>
+    <text x="500" y="110" text-anchor="middle" class="tiny" fill="#7D6608" font-weight="bold">||</text>
+
+    <!-- Iteration 2 -->
+    <text x="0" y="144" class="code bold">Iter 2</text>
+    <rect x="160" y="129" width="300" height="28" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="310" y="148" text-anchor="middle" class="small" fill="white" font-weight="bold">Load tile 3 --> buf 1</text>
+    <rect x="520" y="129" width="300" height="28" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="670" y="148" text-anchor="middle" class="small" fill="white" font-weight="bold">Compute on buf 0</text>
+    <text x="900" y="148" class="code">__syncthreads()</text>
+    <text x="1050" y="148" class="code" fill="#4A90D9">compute: buf0</text>
+
+    <rect x="480" y="129" width="40" height="28" fill="#F1C40F" opacity="0.4" rx="2"/>
+    <text x="500" y="148" text-anchor="middle" class="tiny" fill="#7D6608" font-weight="bold">||</text>
+
+    <!-- Dots -->
+    <text x="400" y="175" class="code bold" fill="#888">...</text>
+
+    <!-- Last iteration -->
+    <text x="0" y="206" class="code bold">Last</text>
+    <rect x="160" y="191" width="300" height="28" fill="#ECF0F1" stroke="#DDD" stroke-width="1" rx="4"/>
+    <text x="310" y="210" text-anchor="middle" class="tiny" fill="#999">(no load -- last tile)</text>
+    <rect x="520" y="191" width="300" height="28" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+    <text x="670" y="210" text-anchor="middle" class="small" fill="white" font-weight="bold">Compute on buf N</text>
+    <text x="900" y="210" class="code">__syncthreads()</text>
+    <text x="1050" y="210" class="code">compute: bufN</text>
+
+    <!-- Code mapping -->
+    <g transform="translate(0, 240)">
+      <rect x="0" y="0" width="700" height="90" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="350" y="18" text-anchor="middle" class="subtitle">Code Structure</text>
+      <line x1="10" y1="24" x2="690" y2="24" stroke="#EEE"/>
+      <text x="10" y="40" class="code" fill="#4A90D9">load_A_tile(0, 0); load_B_tile(0, 0); __syncthreads();  // prologue</text>
+      <text x="10" y="56" class="code">for (tile = 0; tile &lt; num_tiles; tile++) {</text>
+      <text x="10" y="70" class="code">  <tspan fill="#4A90D9">if (tile+1 &lt; num_tiles) load_next(nxt_buf);</tspan>  <tspan fill="#E74C3C">compute(cur_buf);</tspan>  __sync;</text>
+      <text x="10" y="84" class="code">}</text>
+    </g>
+
+    <!-- Buffer alternation diagram -->
+    <g transform="translate(740, 240)">
+      <rect x="0" y="0" width="560" height="90" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="280" y="18" text-anchor="middle" class="subtitle">Buffer Alternation (ping-pong)</text>
+      <line x1="10" y1="24" x2="550" y2="24" stroke="#EEE"/>
+      <text x="10" y="42" class="code">cur_buf = tile &amp; 1;     // 0, 1, 0, 1, ...</text>
+      <text x="10" y="58" class="code">nxt_buf = 1 - cur_buf;  // 1, 0, 1, 0, ...</text>
+      <text x="10" y="78" class="code" fill="#888">Compute reads from cur_buf while loads write to nxt_buf</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Memory Access Pattern (same as tiled_vec)         -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="770" x2="1460" y2="770" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="800" class="section-title">3. Memory Access Pattern (identical to tiled_vec)</text>
+
+  <g transform="translate(60, 820)">
+    <!-- Left: float4 loads summary -->
+    <rect x="0" y="0" width="440" height="160" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1.5" rx="8"/>
+    <text x="220" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">Vectorized Global Loads (float4)</text>
+    <line x1="10" y1="30" x2="430" y2="30" stroke="#4A90D9" opacity="0.3"/>
+
+    <text x="15" y="50" class="code">A tile: 128x8 = 256 float4s (1 per thread)</text>
+    <text x="15" y="66" class="code">  vec_idx/2 = row, vec_idx%2 = which float4</text>
+    <text x="15" y="82" class="code">  16 rows per warp, each 2 float4s</text>
+    <text x="15" y="102" class="code">B tile: 8x128 = 256 float4s (1 per thread)</text>
+    <text x="15" y="118" class="code">  Warp: 32 consecutive float4s per row</text>
+    <text x="15" y="134" class="code bold" fill="#1E8449">  Perfectly coalesced: 512B per warp</text>
+    <text x="15" y="150" class="code" fill="#888">Identical coalescing pattern to tiled_vec</text>
+
+    <!-- Right: Padded smem summary -->
+    <rect x="480" y="0" width="440" height="160" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" rx="8"/>
+    <text x="700" y="22" text-anchor="middle" class="subtitle" fill="#E67E22">Padded Shared Memory</text>
+    <line x1="490" y1="30" x2="910" y2="30" stroke="#E67E22" opacity="0.3"/>
+
+    <text x="495" y="50" class="code">As[buf][128][12]  (8 + PAD=4)</text>
+    <text x="495" y="66" class="code">Bs[buf][8][132]   (128 + PAD=4)</text>
+    <text x="495" y="86" class="code bold" fill="#1E8449">Zero bank conflicts (same as tiled_vec)</text>
+    <text x="495" y="106" class="code">PAD shifts bank mapping per row/k</text>
+    <text x="495" y="126" class="code">As: stride 12, GCD(12,32)=4</text>
+    <text x="495" y="142" class="code">Bs: stride 132, 132%32=4</text>
+
+    <!-- The key difference callout -->
+    <rect x="960" y="0" width="360" height="160" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
+    <text x="1140" y="22" text-anchor="middle" class="subtitle" fill="#1E8449">What Changes vs tiled_vec</text>
+    <line x1="970" y1="30" x2="1310" y2="30" stroke="#27AE60" opacity="0.3"/>
+
+    <text x="975" y="50" class="code bold" fill="#1E8449">Not WHAT loads, but WHEN.</text>
+    <text x="975" y="72" class="code">Same float4 loads, same coalescing,</text>
+    <text x="975" y="86" class="code">same padded shared memory layout.</text>
+    <text x="975" y="108" class="code bold">The difference is timing:</text>
+    <text x="975" y="124" class="code">Loads of tile N+1 happen during</text>
+    <text x="975" y="140" class="code">compute of tile N (overlapped).</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: Compute Pattern (same outer product)              -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1010" x2="1460" y2="1010" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1040" class="section-title">4. Compute Pattern: Outer Product (identical to tiled_vec, but load latency is hidden)</text>
+
+  <g transform="translate(80, 1065)">
+    <!-- a_reg column vector -->
+    <text x="25" y="-10" text-anchor="middle" class="subtitle" fill="#4A90D9">a_reg[8]</text>
+    <text x="25" y="5" text-anchor="middle" class="tiny" fill="#666">As[buf][row+i][k]</text>
+    <rect x="0" y="15" width="50" height="28" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="34" text-anchor="middle" class="small">a[0]</text>
+    <rect x="0" y="43" width="50" height="28" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="62" text-anchor="middle" class="small">a[1]</text>
+    <rect x="0" y="71" width="50" height="12" fill="#A8D0F5" stroke="#4A90D9" stroke-width="0.8" rx="2"/>
+    <text x="25" y="80" text-anchor="middle" class="tiny">...</text>
+    <rect x="0" y="83" width="50" height="28" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="102" text-anchor="middle" class="small">a[7]</text>
+
+    <!-- b_reg row vector -->
+    <g transform="translate(70, -30)">
+      <text x="108" y="-5" text-anchor="middle" class="subtitle" fill="#27AE60">b_reg[8] from Bs[buf][k][col+j]</text>
+      <rect x="0" y="5" width="32" height="28" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="16" y="24" text-anchor="middle" class="small">b[0]</text>
+      <rect x="32" y="5" width="32" height="28" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="48" y="24" text-anchor="middle" class="small">b[1]</text>
+      <rect x="64" y="5" width="32" height="28" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="80" y="24" text-anchor="middle" class="tiny">...</text>
+      <rect x="96" y="5" width="32" height="28" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="112" y="24" text-anchor="middle" class="small">b[6]</text>
+      <rect x="128" y="5" width="32" height="28" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="144" y="24" text-anchor="middle" class="small">b[7]</text>
+    </g>
+
+    <!-- Accumulator grid -->
+    <g transform="translate(70, 15)">
+      <text x="80" y="-38" text-anchor="middle" class="subtitle" fill="#E67E22">accum[8][8] += a[i] * b[j]</text>
+      <rect x="0" y="0" width="160" height="98" fill="url(#fma-grad)" opacity="0.2" stroke="#E67E22" stroke-width="1.5" rx="3"/>
+      <line x1="20" y1="0" x2="20" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="40" y1="0" x2="40" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="60" y1="0" x2="60" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="80" y1="0" x2="80" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="100" y1="0" x2="100" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="120" y1="0" x2="120" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="140" y1="0" x2="140" y2="98" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="14" x2="160" y2="14" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="28" x2="160" y2="28" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="42" x2="160" y2="42" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="56" x2="160" y2="56" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="70" x2="160" y2="70" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="84" x2="160" y2="84" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <text x="80" y="54" text-anchor="middle" class="small bold" fill="#E67E22">64 FMAs</text>
+    </g>
+
+    <!-- Stats -->
+    <g transform="translate(300, 0)">
+      <rect x="0" y="0" width="320" height="115" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="160" y="20" text-anchor="middle" class="subtitle">Per Thread, Per k-step (same as tiled_vec)</text>
+      <line x1="10" y1="28" x2="310" y2="28" stroke="#EEE"/>
+      <text x="15" y="46" class="code" fill="#4A90D9">Smem loads from As[buf]:  8  (broadcast)</text>
+      <text x="15" y="62" class="code" fill="#27AE60">Smem loads from Bs[buf]:  8  (conflict-free)</text>
+      <text x="15" y="80" class="code" fill="#E67E22">FMA operations:           64  (ratio 4:1)</text>
+      <text x="15" y="100" class="code bold">Over full BLK_K=8: 512 FMAs/tile</text>
+    </g>
+
+    <!-- Key insight: latency hiding -->
+    <g transform="translate(650, 0)">
+      <rect x="0" y="0" width="420" height="115" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="6"/>
+      <text x="210" y="20" text-anchor="middle" class="subtitle" fill="#1E8449">Latency Hiding</text>
+      <line x1="10" y1="28" x2="410" y2="28" stroke="#27AE60" opacity="0.3"/>
+      <text x="15" y="48" class="code" fill="#1E8449">While FMAs execute on cur_buf data,</text>
+      <text x="15" y="64" class="code" fill="#1E8449">global memory loads for nxt_buf are</text>
+      <text x="15" y="80" class="code" fill="#1E8449">in-flight through the memory pipeline.</text>
+      <text x="15" y="100" class="code bold" fill="#1E8449">Load latency is hidden behind compute!</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: Benefit Analysis                                  -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1210" x2="1460" y2="1210" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1240" class="section-title">5. Benefit Analysis: Serial vs Pipelined Execution</text>
+
+  <!-- Without double buffer (tiled_vec) -->
+  <g transform="translate(60, 1265)">
+    <text x="0" y="0" class="subtitle" fill="#C0392B">Without Double Buffer (tiled_vec):</text>
+    <text x="0" y="16" class="small" fill="#888">Load and compute are serialized -- must wait for load to complete before computing</text>
+
+    <!-- Serial timeline -->
+    <g transform="translate(0, 30)">
+      <!-- Tile 0 -->
+      <rect x="0" y="0" width="180" height="36" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="90" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 0</text>
+      <text x="90" y="26" text-anchor="middle" class="tiny" fill="white">(global --> smem)</text>
+
+      <rect x="180" y="0" width="40" height="36" fill="#F1C40F" opacity="0.4" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="200" y="22" text-anchor="middle" class="tiny" fill="#7D6608">sync</text>
+
+      <rect x="220" y="0" width="140" height="36" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="290" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Compute tile 0</text>
+      <text x="290" y="26" text-anchor="middle" class="tiny" fill="white">(512 FMAs)</text>
+
+      <rect x="360" y="0" width="40" height="36" fill="#F1C40F" opacity="0.4" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="380" y="22" text-anchor="middle" class="tiny" fill="#7D6608">sync</text>
+
+      <!-- Tile 1 -->
+      <rect x="400" y="0" width="180" height="36" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="490" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 1</text>
+      <text x="490" y="26" text-anchor="middle" class="tiny" fill="white">(global --> smem)</text>
+
+      <rect x="580" y="0" width="40" height="36" fill="#F1C40F" opacity="0.4" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="600" y="22" text-anchor="middle" class="tiny" fill="#7D6608">sync</text>
+
+      <rect x="620" y="0" width="140" height="36" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="690" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Compute tile 1</text>
+      <text x="690" y="26" text-anchor="middle" class="tiny" fill="white">(512 FMAs)</text>
+
+      <rect x="760" y="0" width="40" height="36" fill="#F1C40F" opacity="0.4" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="780" y="22" text-anchor="middle" class="tiny" fill="#7D6608">sync</text>
+
+      <!-- Tile 2 start -->
+      <rect x="800" y="0" width="180" height="36" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="890" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 2</text>
+      <text x="890" y="26" text-anchor="middle" class="tiny" fill="white">(global --> smem)</text>
+
+      <text x="990" y="22" class="code bold" fill="#888">...</text>
+
+      <!-- Time labels -->
+      <text x="500" y="52" text-anchor="middle" class="small bold" fill="#C0392B">Memory pipe IDLE during compute. Math pipe IDLE during load.</text>
+    </g>
+  </g>
+
+  <!-- With double buffer (tiled_pipe) -->
+  <g transform="translate(60, 1370)">
+    <text x="0" y="0" class="subtitle" fill="#1E8449">With Double Buffer (tiled_pipe):</text>
+    <text x="0" y="16" class="small" fill="#888">Load and compute overlap -- memory pipe and math pipe run concurrently</text>
+
+    <!-- Pipelined timeline - two rows: memory pipe and math pipe -->
+    <g transform="translate(0, 30)">
+      <!-- Labels -->
+      <text x="-5" y="18" text-anchor="end" class="small bold" fill="#4A90D9">Mem</text>
+      <text x="-5" y="54" text-anchor="end" class="small bold" fill="#E74C3C">Math</text>
+
+      <!-- Memory pipe row -->
+      <!-- Prologue load -->
+      <rect x="0" y="0" width="130" height="30" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="65" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 0</text>
+      <text x="65" y="26" text-anchor="middle" class="tiny" fill="white">--> buf 0</text>
+
+      <!-- Sync -->
+      <rect x="130" y="0" width="30" height="66" fill="#F1C40F" opacity="0.3" stroke="#F1C40F" stroke-width="1" rx="2"/>
+      <text x="145" y="36" text-anchor="middle" class="tiny" fill="#7D6608" transform="rotate(-90,145,36)">sync</text>
+
+      <!-- Load tile 1 (overlapped with compute tile 0) -->
+      <rect x="160" y="0" width="200" height="30" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="260" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 1 --> buf 1</text>
+      <text x="260" y="26" text-anchor="middle" class="tiny" fill="white">(LSU pipeline)</text>
+
+      <!-- Sync -->
+      <rect x="360" y="0" width="30" height="66" fill="#F1C40F" opacity="0.3" stroke="#F1C40F" stroke-width="1" rx="2"/>
+      <text x="375" y="36" text-anchor="middle" class="tiny" fill="#7D6608" transform="rotate(-90,375,36)">sync</text>
+
+      <!-- Load tile 2 (overlapped with compute tile 1) -->
+      <rect x="390" y="0" width="200" height="30" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="490" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 2 --> buf 0</text>
+      <text x="490" y="26" text-anchor="middle" class="tiny" fill="white">(LSU pipeline)</text>
+
+      <!-- Sync -->
+      <rect x="590" y="0" width="30" height="66" fill="#F1C40F" opacity="0.3" stroke="#F1C40F" stroke-width="1" rx="2"/>
+      <text x="605" y="36" text-anchor="middle" class="tiny" fill="#7D6608" transform="rotate(-90,605,36)">sync</text>
+
+      <!-- Load tile 3 -->
+      <rect x="620" y="0" width="200" height="30" fill="url(#load-grad)" opacity="0.5" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+      <text x="720" y="14" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Load tile 3 --> buf 1</text>
+      <text x="720" y="26" text-anchor="middle" class="tiny" fill="white">(LSU pipeline)</text>
+
+      <text x="830" y="18" class="code bold" fill="#888">...</text>
+
+      <!-- Math pipe row -->
+      <!-- Idle during prologue -->
+      <rect x="0" y="36" width="130" height="30" fill="#ECF0F1" stroke="#DDD" stroke-width="1" rx="4"/>
+      <text x="65" y="55" text-anchor="middle" class="tiny" fill="#999">(idle)</text>
+
+      <!-- Compute tile 0 (overlapped with load tile 1) -->
+      <rect x="160" y="36" width="200" height="30" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="260" y="50" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Compute buf 0</text>
+      <text x="260" y="62" text-anchor="middle" class="tiny" fill="white">(FMA pipeline)</text>
+
+      <!-- Compute tile 1 -->
+      <rect x="390" y="36" width="200" height="30" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="490" y="50" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Compute buf 1</text>
+      <text x="490" y="62" text-anchor="middle" class="tiny" fill="white">(FMA pipeline)</text>
+
+      <!-- Compute tile 2 -->
+      <rect x="620" y="36" width="200" height="30" fill="url(#fma-grad)" opacity="0.5" stroke="#E74C3C" stroke-width="1.5" rx="4"/>
+      <text x="720" y="50" text-anchor="middle" class="tiny" fill="white" font-weight="bold">Compute buf 0</text>
+      <text x="720" y="62" text-anchor="middle" class="tiny" fill="white">(FMA pipeline)</text>
+
+      <text x="830" y="54" class="code bold" fill="#888">...</text>
+
+      <!-- Overlap highlight brackets -->
+      <rect x="160" y="-4" width="200" height="74" fill="none" stroke="#F1C40F" stroke-width="2" stroke-dasharray="4,3" rx="4"/>
+      <rect x="390" y="-4" width="200" height="74" fill="none" stroke="#F1C40F" stroke-width="2" stroke-dasharray="4,3" rx="4"/>
+      <rect x="620" y="-4" width="200" height="74" fill="none" stroke="#F1C40F" stroke-width="2" stroke-dasharray="4,3" rx="4"/>
+
+      <text x="490" y="86" text-anchor="middle" class="small bold" fill="#1E8449">Both pipes active simultaneously -- load latency hidden behind compute!</text>
+    </g>
+  </g>
+
+  <!-- Trade-offs and speedup -->
+  <g transform="translate(60, 1510)">
+    <!-- Trade-off box -->
+    <rect x="0" y="0" width="650" height="135" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="325" y="22" text-anchor="middle" class="subtitle">Trade-offs</text>
+    <line x1="10" y1="30" x2="640" y2="30" stroke="#DDD"/>
+
+    <text x="15" y="50" class="code" fill="#C0392B">Cost: 2x shared memory usage</text>
+    <text x="15" y="66" class="code">  tiled_vec: As[128][12] + Bs[8][132]  =  28.8 KB</text>
+    <text x="15" y="82" class="code">  tiled_pipe: 2x (As[128][12] + Bs[8][132]) = 57.6 KB</text>
+    <text x="15" y="102" class="code" fill="#888">H100 has 228 KB shared memory per SM</text>
+    <text x="15" y="118" class="code" fill="#888">57.6 KB allows 3 blocks per SM (vs 7 with single buffer)</text>
+
+    <!-- Speedup box -->
+    <rect x="680" y="0" width="620" height="135" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="6"/>
+    <text x="990" y="22" text-anchor="middle" class="subtitle" fill="#1E8449">Expected Speedup</text>
+    <line x1="690" y1="30" x2="1290" y2="30" stroke="#27AE60" opacity="0.3"/>
+
+    <text x="695" y="50" class="code" fill="#1E8449">Benefit: Hides global memory load latency</text>
+    <text x="695" y="70" class="code" fill="#1E8449">Global mem latency: ~400-800 cycles</text>
+    <text x="695" y="86" class="code" fill="#1E8449">Compute per tile: 512 FMAs ~ few hundred cycles</text>
+    <text x="695" y="106" class="code bold" fill="#1E8449">If compute >= load latency: load is fully hidden</text>
+    <text x="695" y="126" class="code bold" fill="#1E8449">Typical speedup: 10-20% over tiled_vec</text>
+  </g>
+
+  <!-- Final comparison table -->
+  <g transform="translate(60, 1670)">
+    <rect x="0" y="0" width="1100" height="150" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="550" y="22" text-anchor="middle" class="subtitle">Comparison Summary: tiled_vec vs tiled_pipe</text>
+    <line x1="10" y1="32" x2="1090" y2="32" stroke="#DDD"/>
+
+    <!-- Header -->
+    <text x="30" y="50" class="small bold">Aspect</text>
+    <text x="280" y="50" class="small bold" fill="#E67E22">tiled_vec (04)</text>
+    <text x="600" y="50" class="small bold" fill="#1E8449">tiled_pipe (05)</text>
+    <text x="900" y="50" class="small bold">Improvement</text>
+    <line x1="10" y1="58" x2="1090" y2="58" stroke="#DDD"/>
+
+    <!-- Shared memory -->
+    <text x="30" y="76" class="code">Shared memory</text>
+    <text x="280" y="76" class="code" fill="#E67E22">As[128][12] + Bs[8][132] = 28.8 KB</text>
+    <text x="600" y="76" class="code" fill="#1E8449">2x buffers = 57.6 KB</text>
+    <text x="900" y="76" class="code" fill="#C0392B">2x more smem used</text>
+
+    <!-- Pipeline -->
+    <text x="30" y="96" class="code">Execution</text>
+    <text x="280" y="96" class="code" fill="#E67E22">Serial: Load --> Sync --> Compute --> Sync</text>
+    <text x="600" y="96" class="code" fill="#1E8449">Pipelined: Load N+1 || Compute N</text>
+    <text x="900" y="96" class="code bold" fill="#1E8449">Load latency hidden</text>
+
+    <!-- Compute -->
+    <text x="30" y="116" class="code">Compute</text>
+    <text x="280" y="116" class="code">64 FMAs/k-step, 512 FMAs/tile</text>
+    <text x="600" y="116" class="code">Identical (same outer product)</text>
+    <text x="900" y="116" class="code">Same compute intensity</text>
+
+    <!-- Overall -->
+    <line x1="10" y1="126" x2="1090" y2="126" stroke="#DDD"/>
+    <text x="30" y="142" class="code bold">Expected speedup</text>
+    <text x="600" y="142" class="code bold" fill="#1E8449">Typically 10-20% from latency hiding (memory-bound workloads benefit more)</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="750" y="1875" text-anchor="middle" class="tiny" fill="#AAA">matmul_tiled_pipe&lt;128, 128, 8, 8, 8&gt; -- Double-Buffered Pipeline Memory Access Pattern Diagram</text>
+</svg>

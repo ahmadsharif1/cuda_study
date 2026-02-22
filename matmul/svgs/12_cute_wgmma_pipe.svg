@@ -1,0 +1,567 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 2000" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8E44AD"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="2000" fill="#FAFAFA" rx="8"/>
+
+  <!-- ============================================================ -->
+  <!-- TITLE                                                         -->
+  <!-- ============================================================ -->
+  <text x="700" y="35" text-anchor="middle" class="title">SM90 WGMMA Pipeline: Double-Buffered + Optional CTA Swizzle</text>
+  <text x="700" y="55" text-anchor="middle" class="small">matmul_cute_wgmma_pipe: BLK_M=128, BLK_N=128, BLK_K=32, 2x smem buffers, 256 threads, SWIZZLE=0 or 4</text>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: Double-Buffered WGMMA Pipeline                    -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="70" x2="1360" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. Double-Buffered WGMMA Pipeline Setup</text>
+
+  <g transform="translate(60, 115)">
+    <!-- Buffer 0 -->
+    <g transform="translate(0, 0)">
+      <text x="200" y="0" text-anchor="middle" class="subtitle">Buffer 0</text>
+      <!-- sA0 -->
+      <rect x="0" y="12" width="180" height="55" class="a-light" stroke="#4A90D9" stroke-width="2" rx="4"/>
+      <text x="90" y="32" text-anchor="middle" class="small bold" fill="#4A90D9">sA0 [128x32]</text>
+      <text x="90" y="48" text-anchor="middle" class="tiny">float view (cp_async)</text>
+      <text x="90" y="60" text-anchor="middle" class="tiny" fill="#4A90D9">tfloat32_t view (wgmma)</text>
+      <!-- sB0 -->
+      <rect x="195" y="12" width="180" height="55" class="b-light" stroke="#27AE60" stroke-width="2" rx="4"/>
+      <text x="285" y="32" text-anchor="middle" class="small bold" fill="#27AE60">sB0 [128x32]</text>
+      <text x="285" y="48" text-anchor="middle" class="tiny">float view (cp_async)</text>
+      <text x="285" y="60" text-anchor="middle" class="tiny" fill="#27AE60">tfloat32_t view (wgmma)</text>
+    </g>
+
+    <!-- Buffer 1 -->
+    <g transform="translate(440, 0)">
+      <text x="200" y="0" text-anchor="middle" class="subtitle">Buffer 1</text>
+      <!-- sA1 -->
+      <rect x="0" y="12" width="180" height="55" class="a-light" stroke="#4A90D9" stroke-width="2" rx="4"/>
+      <text x="90" y="32" text-anchor="middle" class="small bold" fill="#4A90D9">sA1 [128x32]</text>
+      <text x="90" y="48" text-anchor="middle" class="tiny">float view (cp_async)</text>
+      <text x="90" y="60" text-anchor="middle" class="tiny" fill="#4A90D9">tfloat32_t view (wgmma)</text>
+      <!-- sB1 -->
+      <rect x="195" y="12" width="180" height="55" class="b-light" stroke="#27AE60" stroke-width="2" rx="4"/>
+      <text x="285" y="32" text-anchor="middle" class="small bold" fill="#27AE60">sB1 [128x32]</text>
+      <text x="285" y="48" text-anchor="middle" class="tiny">float view (cp_async)</text>
+      <text x="285" y="60" text-anchor="middle" class="tiny" fill="#27AE60">tfloat32_t view (wgmma)</text>
+    </g>
+
+    <!-- Both buffers have same swizzled layout -->
+    <g transform="translate(920, 0)">
+      <rect width="340" height="68" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+      <text x="170" y="18" text-anchor="middle" class="subtitle">Double Buffer Layout</text>
+      <line x1="10" y1="24" x2="330" y2="24" stroke="#EEE"/>
+      <text x="15" y="40" class="code">smem: [sA0|sB0] [sA1|sB1]</text>
+      <text x="15" y="56" class="code">2x (128x32 + 128x32) x 4B = 64KB</text>
+    </g>
+
+    <!-- Prologue -->
+    <g transform="translate(0, 85)">
+      <rect width="860" height="28" fill="#FCF3CF" stroke="#F1C40F" rx="4"/>
+      <text x="430" y="19" text-anchor="middle" class="small bold" fill="#7D6608">Prologue: load k=0 into buf0 via cp_async, then fence + wait + __syncthreads()</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: Pipeline Timeline (KEY VISUALIZATION)             -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="240" x2="1360" y2="240" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="265" class="section-title">2. Pipeline Timeline: Overlapping cp_async with WGMMA (KEY VISUALIZATION)</text>
+
+  <g transform="translate(60, 290)">
+    <!-- Timeline headers -->
+    <text x="160" y="0" text-anchor="middle" class="subtitle" fill="#4A90D9">cp_async pipe (load)</text>
+    <text x="520" y="0" text-anchor="middle" class="subtitle" fill="#E74C3C">wgmma pipe (compute)</text>
+    <text x="880" y="0" text-anchor="middle" class="subtitle" fill="#555">Notes</text>
+
+    <!-- Header line -->
+    <line x1="0" y1="8" x2="1100" y2="8" stroke="#333" stroke-width="1"/>
+
+    <!-- Prologue row -->
+    <g transform="translate(0, 20)">
+      <rect x="0" y="0" width="75" height="30" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="37" y="20" text-anchor="middle" class="small bold">Prologue</text>
+      <rect x="85" y="0" width="190" height="30" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="180" y="14" text-anchor="middle" class="tiny" fill="#333">Load k=0 -> buf0</text>
+      <text x="180" y="26" text-anchor="middle" class="tiny" fill="#333">fence + wait + sync</text>
+      <rect x="380" y="0" width="250" height="30" fill="#ECF0F1" stroke="#CCC" stroke-width="1" rx="3" stroke-dasharray="4,3"/>
+      <text x="505" y="20" text-anchor="middle" class="tiny" fill="#888">idle (waiting for data)</text>
+    </g>
+
+    <!-- k=0 row -->
+    <g transform="translate(0, 60)">
+      <rect x="0" y="0" width="75" height="60" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="37" y="25" text-anchor="middle" class="small bold">k=0</text>
+      <text x="37" y="42" text-anchor="middle" class="tiny">(even)</text>
+
+      <!-- Load next into buf1 -->
+      <rect x="85" y="0" width="190" height="60" fill="#CADFF5" stroke="#4A90D9" stroke-width="1.5" rx="3"/>
+      <text x="180" y="14" text-anchor="middle" class="tiny bold" fill="#4A90D9">Load k=1 -> buf1</text>
+      <text x="180" y="28" text-anchor="middle" class="tiny" fill="#333">cp_async(tAgA, tAsA1)</text>
+      <text x="180" y="42" text-anchor="middle" class="tiny" fill="#333">cp_async(tBgB, tBsB1)</text>
+      <text x="180" y="56" text-anchor="middle" class="tiny" fill="#333">cp_async_fence()</text>
+
+      <!-- Compute on buf0 -->
+      <rect x="380" y="0" width="250" height="60" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="505" y="14" text-anchor="middle" class="tiny bold" fill="#E74C3C">wgmma(sA0, sB0, rC)</text>
+      <text x="505" y="28" text-anchor="middle" class="tiny" fill="#333">warpgroup_fence(rC)</text>
+      <text x="505" y="42" text-anchor="middle" class="tiny" fill="#333">warpgroup_arrive + gemm</text>
+      <text x="505" y="56" text-anchor="middle" class="tiny" fill="#333">commit + wait&lt;0&gt;</text>
+
+      <!-- Overlap indicator -->
+      <rect x="660" y="0" width="170" height="60" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="745" y="20" text-anchor="middle" class="tiny bold" fill="#1E8449">OVERLAPPED!</text>
+      <text x="745" y="36" text-anchor="middle" class="tiny" fill="#1E8449">Load buf1 runs</text>
+      <text x="745" y="50" text-anchor="middle" class="tiny" fill="#1E8449">while wgmma uses buf0</text>
+    </g>
+
+    <!-- Sync bar between k=0 and k=1 -->
+    <g transform="translate(85, 125)">
+      <rect width="545" height="16" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.5" rx="2"/>
+      <text x="272" y="12" text-anchor="middle" class="tiny bold" fill="#7D6608">cp_async_wait&lt;0&gt;() + __syncthreads() -- ensure buf1 ready</text>
+    </g>
+
+    <!-- k=1 row -->
+    <g transform="translate(0, 150)">
+      <rect x="0" y="0" width="75" height="60" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="37" y="25" text-anchor="middle" class="small bold">k=1</text>
+      <text x="37" y="42" text-anchor="middle" class="tiny">(odd)</text>
+
+      <!-- Load next into buf0 -->
+      <rect x="85" y="0" width="190" height="60" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="3"/>
+      <text x="180" y="14" text-anchor="middle" class="tiny bold" fill="#27AE60">Load k=2 -> buf0</text>
+      <text x="180" y="28" text-anchor="middle" class="tiny" fill="#333">cp_async(tAgA, tAsA0)</text>
+      <text x="180" y="42" text-anchor="middle" class="tiny" fill="#333">cp_async(tBgB, tBsB0)</text>
+      <text x="180" y="56" text-anchor="middle" class="tiny" fill="#333">cp_async_fence()</text>
+
+      <!-- Compute on buf1 -->
+      <rect x="380" y="0" width="250" height="60" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="505" y="14" text-anchor="middle" class="tiny bold" fill="#E74C3C">wgmma(sA1, sB1, rC)</text>
+      <text x="505" y="28" text-anchor="middle" class="tiny" fill="#333">warpgroup_fence(rC)</text>
+      <text x="505" y="42" text-anchor="middle" class="tiny" fill="#333">warpgroup_arrive + gemm</text>
+      <text x="505" y="56" text-anchor="middle" class="tiny" fill="#333">commit + wait&lt;0&gt;</text>
+
+      <!-- Overlap indicator -->
+      <rect x="660" y="0" width="170" height="60" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="745" y="20" text-anchor="middle" class="tiny bold" fill="#1E8449">OVERLAPPED!</text>
+      <text x="745" y="36" text-anchor="middle" class="tiny" fill="#1E8449">Load buf0 runs</text>
+      <text x="745" y="50" text-anchor="middle" class="tiny" fill="#1E8449">while wgmma uses buf1</text>
+    </g>
+
+    <!-- Sync bar between k=1 and k=2 -->
+    <g transform="translate(85, 215)">
+      <rect width="545" height="16" fill="#FCF3CF" stroke="#F1C40F" stroke-width="0.5" rx="2"/>
+      <text x="272" y="12" text-anchor="middle" class="tiny bold" fill="#7D6608">cp_async_wait&lt;0&gt;() + __syncthreads() -- ensure buf0 ready</text>
+    </g>
+
+    <!-- Dots for continuation -->
+    <text x="350" y="248" text-anchor="middle" font-size="16" fill="#555">...</text>
+
+    <!-- Last k row -->
+    <g transform="translate(0, 262)">
+      <rect x="0" y="0" width="75" height="50" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="37" y="22" text-anchor="middle" class="small bold">k=last</text>
+
+      <!-- No load -->
+      <rect x="85" y="0" width="190" height="50" fill="#ECF0F1" stroke="#CCC" stroke-width="1" rx="3" stroke-dasharray="4,3"/>
+      <text x="180" y="18" text-anchor="middle" class="tiny" fill="#888">no next tile to load</text>
+      <text x="180" y="34" text-anchor="middle" class="tiny" fill="#888">(k+1 == k_max)</text>
+
+      <!-- Final compute -->
+      <rect x="380" y="0" width="250" height="50" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="3"/>
+      <text x="505" y="18" text-anchor="middle" class="tiny bold" fill="#E74C3C">wgmma(buf[last%2], rC)</text>
+      <text x="505" y="34" text-anchor="middle" class="tiny" fill="#333">final accumulation</text>
+    </g>
+
+    <!-- Epilogue -->
+    <g transform="translate(0, 322)">
+      <rect x="380" y="0" width="250" height="28" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" rx="3"/>
+      <text x="505" y="18" text-anchor="middle" class="small bold" fill="#1E8449">copy(tCrC, tCgC) -- store C</text>
+    </g>
+  </g>
+
+  <!-- Key difference box -->
+  <g transform="translate(60, 650)">
+    <rect width="620" height="90" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="310" y="20" text-anchor="middle" class="subtitle">Key Difference from cute_pipe (SM80)</text>
+    <line x1="10" y1="28" x2="610" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code" fill="#C0392B">cute_pipe:      Load buf1 | copy(buf0->regs) + gemm(regs)  (3 ops)</text>
+    <text x="15" y="64" class="code" fill="#1E8449">wgmma_pipe:     Load buf1 | wgmma(buf0 descriptors, rC)     (2 ops)</text>
+    <text x="15" y="82" class="code bold">Fewer steps per iteration = better overlap potential</text>
+  </g>
+
+  <g transform="translate(720, 650)">
+    <rect width="560" height="90" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="6"/>
+    <text x="280" y="20" text-anchor="middle" class="subtitle" fill="#4A90D9">Buffer Alternation Pattern</text>
+    <line x1="10" y1="28" x2="550" y2="28" stroke="#4A90D9" opacity="0.3"/>
+    <text x="15" y="46" class="code">k even: compute buf0, load buf1</text>
+    <text x="15" y="62" class="code">k odd:  compute buf1, load buf0</text>
+    <text x="15" y="80" class="code">Selection: if (k &amp; 1) { buf1 } else { buf0 }</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Optional CTA Swizzle                              -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="760" x2="1360" y2="760" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="785" class="section-title">3. Optional CTA Swizzle (SWIZZLE &gt; 0) for L2 Cache Reuse</text>
+
+  <g transform="translate(60, 805)">
+    <!-- SWIZZLE=0 mode -->
+    <g transform="translate(0, 0)">
+      <rect width="420" height="200" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+      <text x="210" y="20" text-anchor="middle" class="subtitle">SWIZZLE=0: Standard 2D Grid</text>
+      <line x1="10" y1="28" x2="410" y2="28" stroke="#EEE"/>
+      <text x="15" y="46" class="code">tile_m = blockIdx.x</text>
+      <text x="15" y="62" class="code">tile_n = blockIdx.y</text>
+      <text x="15" y="82" class="code">dim3 grid(M/BLK_M, N/BLK_N)</text>
+
+      <!-- Mini grid showing row-major order -->
+      <g transform="translate(30, 95)">
+        <text x="0" y="0" class="tiny">Block scheduling (row-major):</text>
+        <!-- 4x4 mini grid -->
+        <rect x="0" y="10" width="35" height="20" fill="#3498DB" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="17" y="24" text-anchor="middle" class="tiny" fill="white" font-weight="bold">0,0</text>
+        <rect x="37" y="10" width="35" height="20" fill="#3498DB" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="54" y="24" text-anchor="middle" class="tiny" fill="white" font-weight="bold">0,1</text>
+        <rect x="74" y="10" width="35" height="20" fill="#3498DB" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="91" y="24" text-anchor="middle" class="tiny" fill="white" font-weight="bold">0,2</text>
+        <rect x="111" y="10" width="35" height="20" fill="#3498DB" opacity="0.2" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="128" y="24" text-anchor="middle" class="tiny">0,3</text>
+
+        <rect x="0" y="32" width="35" height="20" fill="#27AE60" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="17" y="46" text-anchor="middle" class="tiny" fill="white" font-weight="bold">1,0</text>
+        <rect x="37" y="32" width="35" height="20" fill="#27AE60" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="54" y="46" text-anchor="middle" class="tiny" fill="white" font-weight="bold">1,1</text>
+        <rect x="74" y="32" width="35" height="20" fill="#27AE60" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="91" y="46" text-anchor="middle" class="tiny" fill="white" font-weight="bold">1,2</text>
+        <rect x="111" y="32" width="35" height="20" fill="#27AE60" opacity="0.2" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="128" y="46" text-anchor="middle" class="tiny">1,3</text>
+
+        <rect x="0" y="54" width="35" height="20" fill="#E67E22" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="17" y="68" text-anchor="middle" class="tiny" fill="white" font-weight="bold">2,0</text>
+        <rect x="37" y="54" width="35" height="20" fill="#E67E22" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="54" y="68" text-anchor="middle" class="tiny" fill="white" font-weight="bold">2,1</text>
+        <rect x="74" y="54" width="35" height="20" fill="#E67E22" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="91" y="68" text-anchor="middle" class="tiny" fill="white" font-weight="bold">2,2</text>
+        <rect x="111" y="54" width="35" height="20" fill="#E67E22" opacity="0.2" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="128" y="68" text-anchor="middle" class="tiny">2,3</text>
+
+        <!-- Arrow showing L2 misses for B -->
+        <text x="165" y="30" class="tiny" fill="#C0392B">B tiles: each row</text>
+        <text x="165" y="42" class="tiny" fill="#C0392B">loads unique B col</text>
+        <text x="165" y="54" class="tiny" fill="#C0392B">(poor L2 reuse)</text>
+      </g>
+    </g>
+
+    <!-- SWIZZLE=4 mode -->
+    <g transform="translate(470, 0)">
+      <rect width="530" height="200" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+      <text x="265" y="20" text-anchor="middle" class="subtitle" fill="#1E8449">SWIZZLE=4: 1D Grid with Column-Major Groups</text>
+      <line x1="10" y1="28" x2="520" y2="28" stroke="#EEE"/>
+      <text x="15" y="46" class="code">group_id     = blockIdx.x / (num_m_tiles * SWIZZLE)</text>
+      <text x="15" y="62" class="code">first_n      = group_id * SWIZZLE</text>
+      <text x="15" y="78" class="code">idx_in_group = blockIdx.x - group_id * (...)</text>
+      <text x="15" y="94" class="code">tile_m = idx_in_group % num_m_tiles</text>
+      <text x="15" y="110" class="code">tile_n = first_n + idx_in_group / num_m_tiles</text>
+
+      <!-- Mini grid showing column-major order within group -->
+      <g transform="translate(30, 120)">
+        <text x="0" y="0" class="tiny">Scheduling: column-major within each SWIZZLE group</text>
+        <!-- 3x4 mini grid, first column highlighted -->
+        <rect x="0" y="10" width="35" height="20" fill="#3498DB" opacity="0.7" stroke="#333" stroke-width="0.8" rx="1"/>
+        <text x="17" y="24" text-anchor="middle" class="tiny" fill="white" font-weight="bold">0</text>
+        <rect x="37" y="10" width="35" height="20" fill="#3498DB" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="54" y="24" text-anchor="middle" class="tiny">3</text>
+        <rect x="74" y="10" width="35" height="20" fill="#3498DB" opacity="0.2" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="91" y="24" text-anchor="middle" class="tiny">6</text>
+        <rect x="111" y="10" width="35" height="20" fill="#3498DB" opacity="0.15" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="128" y="24" text-anchor="middle" class="tiny">9</text>
+
+        <rect x="0" y="32" width="35" height="20" fill="#27AE60" opacity="0.7" stroke="#333" stroke-width="0.8" rx="1"/>
+        <text x="17" y="46" text-anchor="middle" class="tiny" fill="white" font-weight="bold">1</text>
+        <rect x="37" y="32" width="35" height="20" fill="#27AE60" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="54" y="46" text-anchor="middle" class="tiny">4</text>
+        <rect x="74" y="32" width="35" height="20" fill="#27AE60" opacity="0.2" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="91" y="46" text-anchor="middle" class="tiny">7</text>
+        <rect x="111" y="32" width="35" height="20" fill="#27AE60" opacity="0.15" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="128" y="46" text-anchor="middle" class="tiny">10</text>
+
+        <rect x="0" y="54" width="35" height="20" fill="#E67E22" opacity="0.7" stroke="#333" stroke-width="0.8" rx="1"/>
+        <text x="17" y="68" text-anchor="middle" class="tiny" fill="white" font-weight="bold">2</text>
+        <rect x="37" y="54" width="35" height="20" fill="#E67E22" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="54" y="68" text-anchor="middle" class="tiny">5</text>
+        <rect x="74" y="54" width="35" height="20" fill="#E67E22" opacity="0.2" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="91" y="68" text-anchor="middle" class="tiny">8</text>
+        <rect x="111" y="54" width="35" height="20" fill="#E67E22" opacity="0.15" stroke="#333" stroke-width="0.5" rx="1"/>
+        <text x="128" y="68" text-anchor="middle" class="tiny">11</text>
+
+        <!-- Arrow showing L2 reuse for B -->
+        <text x="165" y="30" class="tiny" fill="#1E8449">Blocks 0,1,2 share</text>
+        <text x="165" y="42" class="tiny" fill="#1E8449">same B tile column!</text>
+        <text x="165" y="54" class="tiny" fill="#1E8449">(L2 reuse for B)</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Swizzle benefit box -->
+  <g transform="translate(60, 1020)">
+    <rect width="620" height="28" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+    <text x="310" y="19" text-anchor="middle" class="small bold" fill="#1E8449">CTA swizzle: consecutive blocks in same N-column reuse B tile in L2 cache</text>
+  </g>
+
+  <g transform="translate(720, 1020)">
+    <rect width="560" height="28" fill="#EBF5FB" stroke="#4A90D9" rx="4"/>
+    <text x="280" y="19" text-anchor="middle" class="small bold" fill="#2C3E50">1D grid: dim3 grid(total_tiles) when SWIZZLE &gt; 0</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: Memory Access Pattern                             -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1065" x2="1360" y2="1065" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1090" class="section-title">4. Memory Access Pattern (Same as cute_wgmma -- Only Timing Changes)</text>
+
+  <g transform="translate(60, 1110)">
+    <!-- cp_async pattern -->
+    <rect width="420" height="155" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="210" y="20" text-anchor="middle" class="subtitle" fill="#4A90D9">cp_async: Global to Swizzled Shared</text>
+    <line x1="10" y1="28" x2="410" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code">SM80_CP_ASYNC_CACHEGLOBAL&lt;uint128_t&gt;</text>
+    <text x="15" y="62" class="code">Thread: &lt;_32, _8, Stride&lt;_8, _1&gt;&gt;</text>
+    <text x="15" y="78" class="code">Value:  &lt;_1, _4&gt; (4 floats = 16B per thread)</text>
+    <line x1="15" y1="88" x2="405" y2="88" stroke="#EEE"/>
+    <text x="15" y="106" class="code">A: K-contiguous, 128B per row -> coalesced</text>
+    <text x="15" y="122" class="code">B_T: K-contiguous, 128B per row -> coalesced</text>
+    <text x="15" y="140" class="code bold" fill="#1E8449">Identical to cute_wgmma (non-pipelined)</text>
+  </g>
+
+  <!-- wgmma reads -->
+  <g transform="translate(520, 1110)">
+    <rect width="420" height="155" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="210" y="20" text-anchor="middle" class="subtitle" fill="#E74C3C">wgmma: Swizzled Shared to Tensor Core</text>
+    <line x1="10" y1="28" x2="410" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code">Hardware-managed reads from smem</text>
+    <text x="15" y="62" class="code">via shared memory descriptors</text>
+    <text x="15" y="78" class="code">SW128 swizzle ensures conflict-free</text>
+    <line x1="15" y1="88" x2="405" y2="88" stroke="#EEE"/>
+    <text x="15" y="106" class="code bold" fill="#E74C3C">Only change: WHEN loads happen</text>
+    <text x="15" y="122" class="code">(overlapped with compute on other buf)</text>
+    <text x="15" y="140" class="code">No change to access pattern itself</text>
+  </g>
+
+  <!-- Shared memory footprint -->
+  <g transform="translate(980, 1110)">
+    <rect width="300" height="155" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="150" y="20" text-anchor="middle" class="subtitle">Shared Memory Footprint</text>
+    <line x1="10" y1="28" x2="290" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code">Per buffer:</text>
+    <text x="15" y="62" class="code">  sA: 128x32 x 4B = 16KB</text>
+    <text x="15" y="78" class="code">  sB: 128x32 x 4B = 16KB</text>
+    <text x="15" y="94" class="code">  Total: 32KB per buffer</text>
+    <line x1="15" y1="104" x2="285" y2="104" stroke="#EEE"/>
+    <text x="15" y="122" class="code bold" fill="#C0392B">2 buffers: 64KB total</text>
+    <text x="15" y="140" class="code">(requires dynamic smem &gt; 48KB)</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: Data Flow & Progression Summary                   -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1290" x2="1360" y2="1290" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1315" class="section-title">5. Data Flow &amp; Kernel Progression Summary</text>
+
+  <g transform="translate(60, 1340)">
+    <!-- Pipeline stages for wgmma_pipe -->
+    <text x="0" y="0" class="subtitle">cute_wgmma_pipe Data Pipeline:</text>
+
+    <!-- Visual pipeline -->
+    <g transform="translate(0, 18)">
+      <!-- Global -->
+      <rect x="0" y="0" width="100" height="50" fill="#EBF5FB" stroke="#4A90D9" stroke-width="2" rx="6"/>
+      <text x="50" y="22" text-anchor="middle" class="small bold" fill="#4A90D9">Global</text>
+      <text x="50" y="38" text-anchor="middle" class="tiny">A, B_T</text>
+
+      <path d="M105,25 L135,25" class="arrow-bold"/>
+      <text x="120" y="18" text-anchor="middle" class="tiny">cp_async</text>
+
+      <!-- Double buffer smem -->
+      <rect x="140" y="0" width="200" height="50" fill="#D7BDE2" stroke="#8E44AD" stroke-width="2" rx="6"/>
+      <text x="240" y="18" text-anchor="middle" class="small bold" fill="#8E44AD">Swizzled Shared Memory</text>
+      <text x="240" y="34" text-anchor="middle" class="tiny">[buf0] <-> [buf1] (double buffer)</text>
+
+      <path d="M345,25 L375,25" class="arrow-bold"/>
+      <text x="360" y="18" text-anchor="middle" class="tiny">wgmma</text>
+
+      <!-- Tensor Core -->
+      <rect x="380" y="0" width="130" height="50" fill="#FADBD8" stroke="#E74C3C" stroke-width="2" rx="6"/>
+      <text x="445" y="18" text-anchor="middle" class="small bold" fill="#E74C3C">Tensor Core</text>
+      <text x="445" y="34" text-anchor="middle" class="tiny">WGMMA (SM90)</text>
+
+      <path d="M515,25 L545,25" class="arrow-bold"/>
+
+      <!-- Registers (C only) -->
+      <rect x="550" y="0" width="90" height="50" fill="#ECF0F1" stroke="#333" stroke-width="2" rx="6"/>
+      <text x="595" y="18" text-anchor="middle" class="small bold">Registers</text>
+      <text x="595" y="34" text-anchor="middle" class="tiny">C accum only</text>
+
+      <path d="M645,25 L675,25" class="arrow-bold"/>
+
+      <!-- Global out -->
+      <rect x="680" y="0" width="90" height="50" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="6"/>
+      <text x="725" y="22" text-anchor="middle" class="small bold" fill="#27AE60">Global</text>
+      <text x="725" y="38" text-anchor="middle" class="tiny">C output</text>
+
+      <!-- Optional swizzle badge -->
+      <rect x="815" y="0" width="120" height="50" fill="#FCF3CF" stroke="#F1C40F" stroke-width="2" rx="6"/>
+      <text x="875" y="18" text-anchor="middle" class="small bold" fill="#7D6608">+ CTA Swizzle</text>
+      <text x="875" y="34" text-anchor="middle" class="tiny" fill="#7D6608">(L2 scheduling)</text>
+
+      <!-- Overlap bracket under cp_async + wgmma -->
+      <line x1="10" y1="56" x2="510" y2="56" stroke="#1E8449" stroke-width="1.5"/>
+      <line x1="10" y1="52" x2="10" y2="60" stroke="#1E8449" stroke-width="1.5"/>
+      <line x1="510" y1="52" x2="510" y2="60" stroke="#1E8449" stroke-width="1.5"/>
+      <text x="260" y="70" text-anchor="middle" class="small bold" fill="#1E8449">OVERLAPPED via double buffering</text>
+    </g>
+  </g>
+
+  <!-- Kernel progression comparison -->
+  <g transform="translate(60, 1450)">
+    <text x="0" y="0" class="subtitle">Kernel Progression (optimization layers):</text>
+
+    <!-- cute_smem -->
+    <g transform="translate(0, 20)">
+      <text x="0" y="0" class="code" fill="#888">cute_smem:</text>
+      <rect x="120" y="-12" width="65" height="18" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="3"/>
+      <text x="152" y="2" text-anchor="middle" class="tiny">cp_async</text>
+      <path d="M190,-3 L200,-3" class="arrow"/>
+      <rect x="205" y="-12" width="45" height="18" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1" rx="3"/>
+      <text x="227" y="2" text-anchor="middle" class="tiny">smem</text>
+      <path d="M255,-3 L265,-3" class="arrow"/>
+      <rect x="270" y="-12" width="55" height="18" fill="#ECF0F1" stroke="#333" stroke-width="0.8" rx="3"/>
+      <text x="297" y="2" text-anchor="middle" class="tiny" fill="#C0392B">copy</text>
+      <path d="M330,-3 L340,-3" class="arrow"/>
+      <rect x="345" y="-12" width="45" height="18" fill="#ECF0F1" stroke="#333" stroke-width="0.8" rx="3"/>
+      <text x="367" y="2" text-anchor="middle" class="tiny">regs</text>
+      <path d="M395,-3 L405,-3" class="arrow"/>
+      <rect x="410" y="-12" width="60" height="18" fill="url(#fma-grad)" opacity="0.4" stroke="#E67E22" stroke-width="1" rx="3"/>
+      <text x="440" y="2" text-anchor="middle" class="tiny">mma.sync</text>
+      <path d="M475,-3 L485,-3" class="arrow"/>
+      <rect x="490" y="-12" width="45" height="18" fill="#ECF0F1" stroke="#333" stroke-width="0.8" rx="3"/>
+      <text x="512" y="2" text-anchor="middle" class="tiny">regs</text>
+      <path d="M540,-3 L550,-3" class="arrow"/>
+      <rect x="555" y="-12" width="45" height="18" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="577" y="2" text-anchor="middle" class="tiny">global</text>
+    </g>
+
+    <!-- cute_wgmma -->
+    <g transform="translate(0, 48)">
+      <text x="0" y="0" class="code" fill="#888">cute_wgmma:</text>
+      <rect x="120" y="-12" width="65" height="18" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="3"/>
+      <text x="152" y="2" text-anchor="middle" class="tiny">cp_async</text>
+      <path d="M190,-3 L200,-3" class="arrow"/>
+      <rect x="205" y="-12" width="80" height="18" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1" rx="3"/>
+      <text x="245" y="2" text-anchor="middle" class="tiny">swiz smem</text>
+      <path d="M290,-3 L300,-3" class="arrow"/>
+      <rect x="305" y="-12" width="85" height="18" fill="url(#fma-grad)" opacity="0.4" stroke="#E67E22" stroke-width="1" rx="3"/>
+      <text x="347" y="2" text-anchor="middle" class="tiny">wgmma(desc)</text>
+      <path d="M395,-3 L405,-3" class="arrow"/>
+      <rect x="410" y="-12" width="45" height="18" fill="#ECF0F1" stroke="#333" stroke-width="0.8" rx="3"/>
+      <text x="432" y="2" text-anchor="middle" class="tiny">regs</text>
+      <path d="M460,-3 L470,-3" class="arrow"/>
+      <rect x="475" y="-12" width="45" height="18" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="497" y="2" text-anchor="middle" class="tiny">global</text>
+      <text x="540" y="2" class="tiny" fill="#1E8449">(no smem->reg copy)</text>
+    </g>
+
+    <!-- cute_wgmma_pipe (THIS KERNEL) -->
+    <g transform="translate(0, 76)">
+      <text x="0" y="0" class="code bold" fill="#1E8449">wgmma_pipe:</text>
+      <!-- Overlap bracket -->
+      <rect x="120" y="-14" width="285" height="22" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" rx="4" opacity="0.3"/>
+      <rect x="120" y="-12" width="65" height="18" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="3"/>
+      <text x="152" y="2" text-anchor="middle" class="tiny">cp_async</text>
+      <text x="195" y="2" text-anchor="middle" class="tiny" fill="#1E8449">||</text>
+      <rect x="210" y="-12" width="80" height="18" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1" rx="3"/>
+      <text x="250" y="2" text-anchor="middle" class="tiny">swiz smem</text>
+      <path d="M295,-3 L305,-3" class="arrow"/>
+      <rect x="310" y="-12" width="85" height="18" fill="url(#fma-grad)" opacity="0.5" stroke="#E67E22" stroke-width="1.5" rx="3"/>
+      <text x="352" y="2" text-anchor="middle" class="tiny">wgmma(desc)</text>
+      <path d="M400,-3 L410,-3" class="arrow"/>
+      <rect x="415" y="-12" width="45" height="18" fill="#ECF0F1" stroke="#333" stroke-width="0.8" rx="3"/>
+      <text x="437" y="2" text-anchor="middle" class="tiny">regs</text>
+      <path d="M465,-3 L475,-3" class="arrow"/>
+      <rect x="480" y="-12" width="45" height="18" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="502" y="2" text-anchor="middle" class="tiny">global</text>
+      <rect x="540" y="-12" width="75" height="18" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="3"/>
+      <text x="577" y="2" text-anchor="middle" class="tiny" fill="#7D6608">+ swizzle</text>
+    </g>
+  </g>
+
+  <!-- Summary box -->
+  <g transform="translate(60, 1560)">
+    <rect width="620" height="110" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="310" y="22" text-anchor="middle" class="subtitle">This Kernel Combines Three Optimizations</text>
+    <line x1="10" y1="30" x2="610" y2="30" stroke="#EEE"/>
+    <text x="15" y="50" class="code" fill="#1E8449">1. WGMMA:     No smem->register copy (hardware reads smem directly)</text>
+    <text x="15" y="68" class="code" fill="#1E8449">2. Pipeline:  Overlap cp_async loads with wgmma compute</text>
+    <text x="15" y="86" class="code" fill="#1E8449">3. CTA Swizzle: L2-friendly tile scheduling (optional)</text>
+    <text x="15" y="104" class="code bold">Next step up: TMA (hardware load, single-thread issued)</text>
+  </g>
+
+  <!-- What's added vs cute_wgmma -->
+  <g transform="translate(720, 1560)">
+    <rect width="560" height="110" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1.5" rx="6"/>
+    <text x="280" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">What this adds vs cute_wgmma (non-pipelined)</text>
+    <line x1="10" y1="30" x2="550" y2="30" stroke="#4A90D9" opacity="0.3"/>
+    <text x="15" y="50" class="code" fill="#1E8449">+ Double-buffered smem (2x memory, 64KB)</text>
+    <text x="15" y="68" class="code" fill="#1E8449">+ Overlapping load k+1 with compute k</text>
+    <text x="15" y="86" class="code" fill="#1E8449">+ Optional CTA swizzle for L2 B-tile reuse</text>
+    <text x="15" y="104" class="code" fill="#C0392B">- 2x shared memory, requires dynamic smem &gt; 48KB</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1980" text-anchor="middle" class="tiny" fill="#AAA">matmul_cute_wgmma_pipe&lt;128, 128, 32, SWIZZLE&gt; -- SM90 WGMMA Pipeline Memory Access Pattern Diagram</text>
+</svg>

@@ -1,0 +1,804 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 2650" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8E44AD"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1500" height="2650" fill="#FAFAFA" rx="8"/>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: Block Tile Overview & Thread Mapping               -->
+  <!-- ============================================================ -->
+  <text x="750" y="35" text-anchor="middle" class="title">Register-Tiled GEMM: Memory Access Patterns</text>
+  <text x="750" y="55" text-anchor="middle" class="small">BLK_M=128, BLK_N=128, BLK_K=8, TM=8, TN=8, 256 threads (16x16 grid), Warp = 32 threads</text>
+
+  <!-- Section 1 Header -->
+  <line x1="40" y1="70" x2="1460" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. Block Tile Decomposition &amp; Thread-to-Output Mapping</text>
+
+  <!-- A tile (128 x 8) -->
+  <g transform="translate(80, 120)">
+    <text x="60" y="-5" text-anchor="middle" class="subtitle">As [shared]</text>
+    <rect width="48" height="240" class="a-light" stroke="#4A90D9" stroke-width="2" rx="2"/>
+    <!-- Row labels -->
+    <text x="-10" y="8" text-anchor="end" class="tiny">0</text>
+    <text x="-10" y="128" text-anchor="end" class="tiny">64</text>
+    <text x="-10" y="238" text-anchor="end" class="tiny">127</text>
+    <!-- Dimension labels -->
+    <text x="24" y="260" text-anchor="middle" class="dim-label">8 cols</text>
+    <text x="-25" y="120" text-anchor="middle" class="dim-label" transform="rotate(-90,-25,120)">128 rows</text>
+    <!-- Grid lines to suggest structure -->
+    <line x1="0" y1="30" x2="48" y2="30" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="60" x2="48" y2="60" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="120" x2="48" y2="120" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="180" x2="48" y2="180" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <!-- Warp 0 highlight (rows 0-15, i.e. top ~30px) -->
+    <rect width="48" height="30" class="warp-fill" rx="1"/>
+  </g>
+
+  <!-- Multiply sign -->
+  <text x="195" y="255" text-anchor="middle" font-size="28" fill="#333">x</text>
+
+  <!-- B tile (8 x 128) -->
+  <g transform="translate(220, 195)">
+    <text x="120" y="-5" text-anchor="middle" class="subtitle">Bs [shared]</text>
+    <rect width="240" height="48" class="b-light" stroke="#27AE60" stroke-width="2" rx="2"/>
+    <!-- Column labels -->
+    <text x="2" y="65" text-anchor="start" class="tiny">0</text>
+    <text x="118" y="65" text-anchor="middle" class="tiny">64</text>
+    <text x="232" y="65" text-anchor="end" class="tiny">127</text>
+    <!-- Dimension labels -->
+    <text x="120" y="78" text-anchor="middle" class="dim-label">128 cols</text>
+    <text x="-20" y="24" text-anchor="middle" class="dim-label" transform="rotate(-90,-20,24)">8 rows</text>
+    <!-- Grid lines -->
+    <line x1="60" y1="0" x2="60" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <line x1="120" y1="0" x2="120" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <line x1="180" y1="0" x2="180" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+  </g>
+
+  <!-- Equals sign -->
+  <text x="505" y="235" text-anchor="middle" font-size="28" fill="#333">=</text>
+
+  <!-- C tile (128 x 128) with thread grid -->
+  <g transform="translate(540, 120)">
+    <text x="120" y="-5" text-anchor="middle" class="subtitle">C tile [128x128 output]</text>
+    <rect width="240" height="240" class="c-light" stroke="#E67E22" stroke-width="2" rx="2"/>
+
+    <!-- 16x16 thread grid -->
+    <g>
+      <!-- Vertical grid lines (16 columns) -->
+      <line x1="15" y1="0" x2="15" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="30" y1="0" x2="30" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="45" y1="0" x2="45" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="60" y1="0" x2="60" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="75" y1="0" x2="75" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="90" y1="0" x2="90" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="105" y1="0" x2="105" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="120" y1="0" x2="120" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="135" y1="0" x2="135" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="150" y1="0" x2="150" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="165" y1="0" x2="165" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="180" y1="0" x2="180" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="195" y1="0" x2="195" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="210" y1="0" x2="210" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="225" y1="0" x2="225" y2="240" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <!-- Horizontal grid lines (16 rows) -->
+      <line x1="0" y1="15" x2="240" y2="15" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="30" x2="240" y2="30" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="45" x2="240" y2="45" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="60" x2="240" y2="60" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="75" x2="240" y2="75" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="90" x2="240" y2="90" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="105" x2="240" y2="105" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="120" x2="240" y2="120" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="135" x2="240" y2="135" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="150" x2="240" y2="150" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="165" x2="240" y2="165" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="180" x2="240" y2="180" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="195" x2="240" y2="195" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="210" x2="240" y2="210" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+      <line x1="0" y1="225" x2="240" y2="225" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    </g>
+
+    <!-- Warp 0 highlight: threads 0-31 = rows 0-1 of thread grid × all 16 columns -->
+    <!-- That maps to rows 0-15 of C tile, all 128 cols -->
+    <rect width="240" height="30" fill="#F1C40F" opacity="0.45" rx="1"/>
+
+    <!-- Single thread highlight (thread 0) -->
+    <rect width="15" height="15" fill="#E74C3C" opacity="0.5" rx="1"/>
+
+    <!-- Labels -->
+    <text x="120" y="256" text-anchor="middle" class="small">16x16 thread grid, each cell = one thread's 8x8 output</text>
+    <text x="7" y="10" class="tiny" fill="#C0392B" font-weight="bold">T0</text>
+  </g>
+
+  <!-- Legend for C tile -->
+  <g transform="translate(810, 140)">
+    <rect width="12" height="12" fill="#F1C40F" opacity="0.45" stroke="#333" stroke-width="0.5"/>
+    <text x="18" y="11" class="small">Warp 0 (threads 0-31): rows 0-15 of C</text>
+    <rect y="18" width="12" height="12" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5"/>
+    <text x="18" y="29" class="small">Thread 0: C[0:8, 0:8] (8x8 sub-tile)</text>
+    <rect y="36" width="12" height="12" class="c-light" stroke="#E67E22" stroke-width="0.5"/>
+    <text x="18" y="47" class="small">Grid cell = one thread's TM x TN output</text>
+  </g>
+
+  <!-- Thread ID layout explanation -->
+  <g transform="translate(810, 200)">
+    <text x="0" y="0" class="subtitle">Thread Layout (tid = threadIdx.x):</text>
+    <text x="0" y="18" class="code">thread_row = (tid / 16) * 8</text>
+    <text x="0" y="32" class="code">thread_col = (tid % 16) * 8</text>
+    <text x="0" y="52" class="code">Warp 0: tid 0-31</text>
+    <text x="0" y="66" class="code">  T0-T15:  row=0,  col=0,8,...,120</text>
+    <text x="0" y="80" class="code">  T16-T31: row=8,  col=0,8,...,120</text>
+    <text x="0" y="100" class="code">Warp 1: tid 32-63</text>
+    <text x="0" y="114" class="code">  T32-T47: row=16, col=0,8,...,120</text>
+    <text x="0" y="128" class="code">  T48-T63: row=24, col=0,8,...,120</text>
+    <text x="0" y="148" class="small" fill="#888">Each warp covers 2 thread-rows x 16 thread-cols</text>
+    <text x="0" y="162" class="small" fill="#888">= 16 rows x 128 cols of the C block tile</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: Global Memory Coalescing                          -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="410" x2="1460" y2="410" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="440" class="section-title">2. Global Memory → Shared Memory: Coalescing Analysis (Warp 0, iteration i=0)</text>
+
+  <!-- ---- LEFT: A tile loading ---- -->
+  <g transform="translate(60, 470)">
+    <text x="200" y="0" text-anchor="middle" class="subtitle" fill="#C0392B">Loading A Tile: NOT Fully Coalesced</text>
+    <text x="200" y="18" text-anchor="middle" class="small">idx = tid, a_row = idx/8, a_col = idx%8</text>
+
+    <!-- A tile grid: show 4 rows x 8 cols (what warp 0 loads in i=0) -->
+    <g transform="translate(50, 35)">
+      <!-- Column headers -->
+      <text x="15" y="-5" text-anchor="middle" class="tiny">k=0</text>
+      <text x="53" y="-5" text-anchor="middle" class="tiny">k=1</text>
+      <text x="91" y="-5" text-anchor="middle" class="tiny">k=2</text>
+      <text x="129" y="-5" text-anchor="middle" class="tiny">k=3</text>
+      <text x="167" y="-5" text-anchor="middle" class="tiny">k=4</text>
+      <text x="205" y="-5" text-anchor="middle" class="tiny">k=5</text>
+      <text x="243" y="-5" text-anchor="middle" class="tiny">k=6</text>
+      <text x="281" y="-5" text-anchor="middle" class="tiny">k=7</text>
+
+      <!-- Row 0: threads 0-7 (lanes 0-7) - Blue -->
+      <rect x="0" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="38" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="76" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="114" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="152" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="190" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="228" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="266" y="0" width="38" height="30" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <text x="5" y="20" class="tiny" fill="white" font-weight="bold">T0</text>
+      <text x="43" y="20" class="tiny" fill="white" font-weight="bold">T1</text>
+      <text x="81" y="20" class="tiny" fill="white" font-weight="bold">T2</text>
+      <text x="119" y="20" class="tiny" fill="white" font-weight="bold">T3</text>
+      <text x="157" y="20" class="tiny" fill="white" font-weight="bold">T4</text>
+      <text x="195" y="20" class="tiny" fill="white" font-weight="bold">T5</text>
+      <text x="233" y="20" class="tiny" fill="white" font-weight="bold">T6</text>
+      <text x="271" y="20" class="tiny" fill="white" font-weight="bold">T7</text>
+
+      <!-- Row 1: threads 8-15 (lanes 8-15) - Green -->
+      <rect x="0" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="38" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="76" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="114" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="152" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="190" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="228" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="266" y="30" width="38" height="30" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <text x="5" y="50" class="tiny" fill="white" font-weight="bold">T8</text>
+      <text x="43" y="50" class="tiny" fill="white" font-weight="bold">T9</text>
+      <text x="79" y="50" class="tiny" fill="white" font-weight="bold">T10</text>
+      <text x="117" y="50" class="tiny" fill="white" font-weight="bold">T11</text>
+      <text x="155" y="50" class="tiny" fill="white" font-weight="bold">T12</text>
+      <text x="193" y="50" class="tiny" fill="white" font-weight="bold">T13</text>
+      <text x="231" y="50" class="tiny" fill="white" font-weight="bold">T14</text>
+      <text x="269" y="50" class="tiny" fill="white" font-weight="bold">T15</text>
+
+      <!-- Row 2: threads 16-23 (lanes 16-23) - Orange -->
+      <rect x="0" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="38" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="76" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="114" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="152" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="190" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="228" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="266" y="60" width="38" height="30" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <text x="5" y="80" class="tiny" fill="white" font-weight="bold">T16</text>
+      <text x="43" y="80" class="tiny" fill="white" font-weight="bold">T17</text>
+      <text x="79" y="80" class="tiny" fill="white" font-weight="bold">T18</text>
+      <text x="117" y="80" class="tiny" fill="white" font-weight="bold">T19</text>
+      <text x="155" y="80" class="tiny" fill="white" font-weight="bold">T20</text>
+      <text x="193" y="80" class="tiny" fill="white" font-weight="bold">T21</text>
+      <text x="231" y="80" class="tiny" fill="white" font-weight="bold">T22</text>
+      <text x="269" y="80" class="tiny" fill="white" font-weight="bold">T23</text>
+
+      <!-- Row 3: threads 24-31 (lanes 24-31) - Purple -->
+      <rect x="0" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="38" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="76" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="114" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="152" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="190" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="228" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <rect x="266" y="90" width="38" height="30" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="1" rx="2"/>
+      <text x="5" y="110" class="tiny" fill="white" font-weight="bold">T24</text>
+      <text x="43" y="110" class="tiny" fill="white" font-weight="bold">T25</text>
+      <text x="79" y="110" class="tiny" fill="white" font-weight="bold">T26</text>
+      <text x="117" y="110" class="tiny" fill="white" font-weight="bold">T27</text>
+      <text x="155" y="110" class="tiny" fill="white" font-weight="bold">T28</text>
+      <text x="193" y="110" class="tiny" fill="white" font-weight="bold">T29</text>
+      <text x="231" y="110" class="tiny" fill="white" font-weight="bold">T30</text>
+      <text x="269" y="110" class="tiny" fill="white" font-weight="bold">T31</text>
+
+      <!-- Row label: a_row -->
+      <text x="-8" y="18" text-anchor="end" class="small">row 0</text>
+      <text x="-8" y="48" text-anchor="end" class="small">row 1</text>
+      <text x="-8" y="78" text-anchor="end" class="small">row 2</text>
+      <text x="-8" y="108" text-anchor="end" class="small">row 3</text>
+    </g>
+
+    <!-- Memory address visualization -->
+    <g transform="translate(50, 170)">
+      <text x="0" y="0" class="subtitle">Global Memory Layout (row-major):</text>
+      <!-- Row 0 -->
+      <rect x="0" y="10" width="150" height="22" fill="#3498DB" opacity="0.5" stroke="#2C3E50" rx="3"/>
+      <text x="160" y="26" class="small">A[r+0, t:t+8] → base + 0*K   (32B)</text>
+      <!-- Gap to show stride -->
+      <text x="65" y="46" class="tiny" fill="#C0392B">↕ stride = K floats apart</text>
+      <!-- Row 1 -->
+      <rect x="0" y="52" width="150" height="22" fill="#27AE60" opacity="0.5" stroke="#2C3E50" rx="3"/>
+      <text x="160" y="68" class="small">A[r+1, t:t+8] → base + 1*K   (32B)</text>
+      <!-- Row 2 -->
+      <rect x="0" y="82" width="150" height="22" fill="#E67E22" opacity="0.5" stroke="#2C3E50" rx="3"/>
+      <text x="160" y="98" class="small">A[r+2, t:t+8] → base + 2*K   (32B)</text>
+      <!-- Row 3 -->
+      <rect x="0" y="112" width="150" height="22" fill="#8E44AD" opacity="0.5" stroke="#2C3E50" rx="3"/>
+      <text x="160" y="128" class="small">A[r+3, t:t+8] → base + 3*K   (32B)</text>
+
+      <!-- Verdict -->
+      <rect x="0" y="148" width="420" height="28" fill="#FADBD8" stroke="#C0392B" rx="4"/>
+      <text x="210" y="167" text-anchor="middle" class="small" fill="#C0392B" font-weight="bold">4 separate 32B cache line requests per warp (strided by K)</text>
+    </g>
+  </g>
+
+  <!-- ---- RIGHT: B tile loading ---- -->
+  <g transform="translate(560, 470)">
+    <text x="420" y="0" text-anchor="middle" class="subtitle" fill="#8E44AD">Loading B Tile: COALESCED</text>
+    <text x="420" y="18" text-anchor="middle" class="small">idx = tid, b_row = idx/128, b_col = idx%128</text>
+
+    <!-- B tile grid: 1 row x 32 cols (what warp 0 accesses - all in row 0) -->
+    <g transform="translate(50, 35)">
+      <text x="0" y="-5" class="tiny">col 0</text>
+      <text x="708" y="-5" text-anchor="end" class="tiny">col 31</text>
+
+      <!-- All 32 threads in one row - all purple (coalesced) -->
+      <rect x="0" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="22" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="44" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="66" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="88" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="110" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="132" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="154" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="176" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="198" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="220" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="242" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="264" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="286" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="308" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="330" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="352" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="374" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="396" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="418" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="440" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="462" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="484" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="506" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="528" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="550" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="572" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="594" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="616" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="638" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="660" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+      <rect x="682" y="0" width="22" height="30" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+
+      <!-- Thread labels (selected) -->
+      <text x="4" y="20" class="tiny" fill="white" font-weight="bold">T0</text>
+      <text x="26" y="20" class="tiny" fill="white" font-weight="bold">T1</text>
+      <text x="48" y="20" class="tiny" fill="white" font-weight="bold">T2</text>
+      <text x="312" y="20" class="tiny" fill="white" font-weight="bold">...</text>
+      <text x="660" y="20" class="tiny" fill="white" font-weight="bold">T30</text>
+      <text x="682" y="20" class="tiny" fill="white" font-weight="bold">T31</text>
+
+      <!-- Row label -->
+      <text x="-10" y="20" text-anchor="end" class="small">row 0</text>
+
+      <!-- Bracket showing remaining cols -->
+      <text x="350" y="48" text-anchor="middle" class="tiny" fill="#666">← All 32 threads in consecutive columns of B row 0 →</text>
+    </g>
+
+    <!-- Memory address visualization -->
+    <g transform="translate(50, 115)">
+      <text x="0" y="0" class="subtitle">Global Memory Layout (row-major):</text>
+      <rect x="0" y="10" width="704" height="22" fill="#8E44AD" opacity="0.35" stroke="#8E44AD" rx="3"/>
+      <text x="352" y="26" text-anchor="middle" class="small" fill="#333">B[t+0, c:c+32] → 32 consecutive floats = 128 bytes</text>
+
+      <!-- Verdict -->
+      <rect x="0" y="46" width="420" height="28" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+      <text x="210" y="65" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">1 coalesced 128B transaction per warp (perfect!)</text>
+
+      <text x="0" y="100" class="small" fill="#555">Note: BLK_N=128, so 128/32 = 4 warp iterations (i=0..3) fill one row.</text>
+      <text x="0" y="116" class="small" fill="#555">Each iteration is perfectly coalesced within the warp.</text>
+    </g>
+
+    <!-- Additional note about full tile -->
+    <g transform="translate(50, 255)">
+      <text x="0" y="0" class="subtitle">Full Tile Coverage (all 4 iterations):</text>
+      <text x="0" y="18" class="code">i=0: warp loads B[row0, col  0: 31]  ← coalesced</text>
+      <text x="0" y="32" class="code">i=1: warp loads B[row0, col 32: 63]  ← coalesced</text>
+      <text x="0" y="46" class="code">i=2: warp loads B[row0, col 64: 95]  ← coalesced</text>
+      <text x="0" y="60" class="code">i=3: warp loads B[row0, col 96:127]  ← coalesced</text>
+      <text x="0" y="78" class="small" fill="#555">(Other warps load remaining rows of the 8x128 Bs tile)</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Outer Product Computation                         -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="830" x2="1460" y2="830" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="860" class="section-title">3. Outer Product: One Thread's Computation (Thread 0, one k-step)</text>
+  <text x="50" y="880" class="small">For each k in 0..BLK_K-1: load TM values from As column + TN values from Bs row → TM x TN FMAs</text>
+
+  <g transform="translate(100, 910)">
+    <!-- a_reg column vector (from As) -->
+    <text x="25" y="-10" text-anchor="middle" class="subtitle" fill="#4A90D9">a_reg[8]</text>
+    <text x="25" y="5" text-anchor="middle" class="tiny" fill="#666">from As col k</text>
+    <rect x="0" y="15" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="36" text-anchor="middle" class="small">a[0]</text>
+    <rect x="0" y="47" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="68" text-anchor="middle" class="small">a[1]</text>
+    <rect x="0" y="79" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="100" text-anchor="middle" class="small">a[2]</text>
+    <rect x="0" y="111" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="132" text-anchor="middle" class="small">a[3]</text>
+    <rect x="0" y="143" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="164" text-anchor="middle" class="small">a[4]</text>
+    <rect x="0" y="175" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="196" text-anchor="middle" class="small">a[5]</text>
+    <rect x="0" y="207" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="228" text-anchor="middle" class="small">a[6]</text>
+    <rect x="0" y="239" width="50" height="32" fill="#A8D0F5" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+    <text x="25" y="260" text-anchor="middle" class="small">a[7]</text>
+
+    <!-- Shared memory source annotation for a_reg -->
+    <text x="-15" y="36" text-anchor="end" class="tiny" fill="#4A90D9">As[0][k]</text>
+    <text x="-15" y="68" text-anchor="end" class="tiny" fill="#4A90D9">As[1][k]</text>
+    <text x="-15" y="100" text-anchor="end" class="tiny" fill="#4A90D9">As[2][k]</text>
+    <text x="-15" y="132" text-anchor="end" class="tiny" fill="#4A90D9">As[3][k]</text>
+    <text x="-15" y="164" text-anchor="end" class="tiny" fill="#4A90D9">As[4][k]</text>
+    <text x="-15" y="196" text-anchor="end" class="tiny" fill="#4A90D9">As[5][k]</text>
+    <text x="-15" y="228" text-anchor="end" class="tiny" fill="#4A90D9">As[6][k]</text>
+    <text x="-15" y="260" text-anchor="end" class="tiny" fill="#4A90D9">As[7][k]</text>
+
+    <!-- b_reg row vector (from Bs) -->
+    <g transform="translate(80, -35)">
+      <text x="170" y="-10" text-anchor="middle" class="subtitle" fill="#27AE60">b_reg[8] from Bs row k</text>
+      <rect x="0" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="21" y="26" text-anchor="middle" class="small">b[0]</text>
+      <rect x="42" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="63" y="26" text-anchor="middle" class="small">b[1]</text>
+      <rect x="84" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="105" y="26" text-anchor="middle" class="small">b[2]</text>
+      <rect x="126" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="147" y="26" text-anchor="middle" class="small">b[3]</text>
+      <rect x="168" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="189" y="26" text-anchor="middle" class="small">b[4]</text>
+      <rect x="210" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="231" y="26" text-anchor="middle" class="small">b[5]</text>
+      <rect x="252" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="273" y="26" text-anchor="middle" class="small">b[6]</text>
+      <rect x="294" y="5" width="42" height="32" fill="#B8E6CC" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+      <text x="315" y="26" text-anchor="middle" class="small">b[7]</text>
+
+      <!-- Source annotations -->
+      <text x="21" y="50" text-anchor="middle" class="tiny" fill="#27AE60">Bs[k][0]</text>
+      <text x="63" y="50" text-anchor="middle" class="tiny" fill="#27AE60">Bs[k][1]</text>
+      <text x="147" y="50" text-anchor="middle" class="tiny" fill="#27AE60">...</text>
+      <text x="315" y="50" text-anchor="middle" class="tiny" fill="#27AE60">Bs[k][7]</text>
+    </g>
+
+    <!-- Accumulator 8x8 grid -->
+    <g transform="translate(80, 15)">
+      <text x="168" y="-42" text-anchor="middle" class="subtitle" fill="#E67E22">accum[8][8] += a_reg[i] * b_reg[j]</text>
+
+      <!-- Draw 8x8 grid -->
+      <!-- Row 0 -->
+      <rect x="0" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="0" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 1 -->
+      <rect x="0" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="32" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 2 -->
+      <rect x="0" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="64" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 3 -->
+      <rect x="0" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="96" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 4 -->
+      <rect x="0" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="128" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 5 -->
+      <rect x="0" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="160" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 6 -->
+      <rect x="0" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="192" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <!-- Row 7 -->
+      <rect x="0" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="42" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="84" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="126" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="168" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="210" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="252" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+      <rect x="294" y="224" width="42" height="32" fill="url(#fma-grad)" opacity="0.3" stroke="#E67E22" stroke-width="0.8"/>
+
+      <!-- Cell labels for first row and first col to show formula -->
+      <text x="21" y="20" text-anchor="middle" class="tiny" fill="#333">a[0]*b[0]</text>
+      <text x="63" y="20" text-anchor="middle" class="tiny" fill="#333">a[0]*b[1]</text>
+      <text x="147" y="20" text-anchor="middle" class="tiny" fill="#333">...</text>
+      <text x="315" y="20" text-anchor="middle" class="tiny" fill="#333">a[0]*b[7]</text>
+      <text x="21" y="52" text-anchor="middle" class="tiny" fill="#333">a[1]*b[0]</text>
+      <text x="315" y="52" text-anchor="middle" class="tiny" fill="#333">a[1]*b[7]</text>
+      <text x="21" y="84" text-anchor="middle" class="tiny" fill="#333">a[2]*b[0]</text>
+      <text x="21" y="244" text-anchor="middle" class="tiny" fill="#333">a[7]*b[0]</text>
+      <text x="315" y="244" text-anchor="middle" class="tiny" fill="#333">a[7]*b[7]</text>
+      <!-- Diagonal dots -->
+      <text x="168" y="148" text-anchor="middle" font-size="14" fill="#333">...</text>
+    </g>
+
+    <!-- Stats box -->
+    <g transform="translate(470, 20)">
+      <rect x="0" y="0" width="340" height="235" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="170" y="22" text-anchor="middle" class="subtitle">Per Thread, Per k-step</text>
+      <line x1="10" y1="30" x2="330" y2="30" stroke="#EEE"/>
+
+      <text x="15" y="50" class="code" fill="#4A90D9">Smem loads from As:  TM  =  8</text>
+      <text x="15" y="68" class="code" fill="#27AE60">Smem loads from Bs:  TN  =  8</text>
+      <line x1="15" y1="76" x2="280" y2="76" stroke="#EEE"/>
+      <text x="15" y="94" class="code">Total smem loads:    TM+TN = 16</text>
+      <text x="15" y="114" class="code" fill="#E67E22">FMA operations:      TM*TN = 64</text>
+      <line x1="15" y1="124" x2="280" y2="124" stroke="#EEE"/>
+      <text x="15" y="146" class="code bold" fill="#C0392B">Compute:load ratio = 64/16 = 4x</text>
+
+      <line x1="15" y1="160" x2="280" y2="160" stroke="#EEE"/>
+      <text x="15" y="180" class="subtitle">Over full BLK_K=8 inner loop:</text>
+      <text x="15" y="198" class="code">Total loads:  8 * 16 = 128</text>
+      <text x="15" y="216" class="code" fill="#E67E22">Total FMAs:   8 * 64 = 512</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: Shared Memory Bank Analysis                       -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1215" x2="1460" y2="1215" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1245" class="section-title">4. Shared Memory Access Pattern During Compute (Warp 0, one k-step)</text>
+
+  <!-- As reads: broadcast -->
+  <g transform="translate(60, 1270)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#4A90D9">As reads: BROADCAST (no bank conflicts)</text>
+    <text x="280" y="18" text-anchor="middle" class="small">All threads with same thread_row read identical addresses</text>
+
+    <!-- Show two groups -->
+    <g transform="translate(20, 35)">
+      <!-- Group 1: threads 0-15 (thread_row = 0) -->
+      <rect x="0" y="0" width="240" height="95" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="4"/>
+      <text x="120" y="18" text-anchor="middle" class="small bold" fill="#4A90D9">Threads 0-15 (thread_row = 0)</text>
+      <text x="10" y="38" class="code">T0:  As[0][k], As[1][k], ..., As[7][k]</text>
+      <text x="10" y="52" class="code">T1:  As[0][k], As[1][k], ..., As[7][k]</text>
+      <text x="10" y="66" class="code">...  (all identical!)</text>
+      <text x="10" y="82" class="code">T15: As[0][k], As[1][k], ..., As[7][k]</text>
+
+      <!-- Group 2: threads 16-31 (thread_row = 8) -->
+      <rect x="270" y="0" width="250" height="95" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="4"/>
+      <text x="395" y="18" text-anchor="middle" class="small bold" fill="#4A90D9">Threads 16-31 (thread_row = 8)</text>
+      <text x="280" y="38" class="code">T16: As[8][k], As[9][k], ..., As[15][k]</text>
+      <text x="280" y="52" class="code">T17: As[8][k], As[9][k], ..., As[15][k]</text>
+      <text x="280" y="66" class="code">...  (all identical!)</text>
+      <text x="280" y="82" class="code">T31: As[8][k], As[9][k], ..., As[15][k]</text>
+
+      <!-- Broadcast explanation -->
+      <rect x="0" y="108" width="520" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+      <text x="260" y="126" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">Multiple threads read same address → hardware broadcast, zero bank conflicts</text>
+    </g>
+  </g>
+
+  <!-- Bs reads: stride-8 pattern -->
+  <g transform="translate(60, 1470)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#E67E22">Bs reads: Stride-8 Pattern (potential 4-way bank conflicts)</text>
+    <text x="280" y="18" text-anchor="middle" class="small">Each thread reads from different columns, stride = TN = 8</text>
+
+    <g transform="translate(20, 35)">
+      <!-- Show thread-to-column mapping -->
+      <text x="0" y="0" class="code">For a single j value across warp (16 unique readers):</text>
+      <text x="0" y="18" class="code">T0:  Bs[k][ 0+j]  → bank ( 0+j) % 32</text>
+      <text x="0" y="32" class="code">T1:  Bs[k][ 8+j]  → bank ( 8+j) % 32</text>
+      <text x="0" y="46" class="code">T2:  Bs[k][16+j]  → bank (16+j) % 32</text>
+      <text x="0" y="60" class="code">T3:  Bs[k][24+j]  → bank (24+j) % 32</text>
+      <text x="0" y="74" class="code" fill="#C0392B" font-weight="bold">T4:  Bs[k][32+j]  → bank ( 0+j) % 32  ← same bank as T0!</text>
+      <text x="0" y="88" class="code" fill="#C0392B" font-weight="bold">T5:  Bs[k][40+j]  → bank ( 8+j) % 32  ← same bank as T1!</text>
+      <text x="0" y="102" class="code">...  (pattern repeats every 4 threads)</text>
+      <text x="0" y="116" class="code">T16-T31: same thread_col values as T0-T15 → same addresses → broadcast</text>
+
+      <!-- Bank diagram -->
+      <g transform="translate(0, 135)">
+        <text x="0" y="0" class="subtitle">Bank collision map (j=0 example):</text>
+        <!-- Show 32 banks, highlight the 4 that are hit -->
+        <g transform="translate(0, 12)">
+          <!-- 32 bank cells -->
+          <rect x="0" y="0" width="18" height="22" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="18" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="36" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="54" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="72" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="90" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="108" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="126" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="144" y="0" width="18" height="22" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="162" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="180" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="198" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="216" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="234" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="252" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="270" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="288" y="0" width="18" height="22" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="306" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="324" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="342" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="360" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="378" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="396" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="414" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="432" y="0" width="18" height="22" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="450" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="468" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="486" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="504" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="522" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="540" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+          <rect x="558" y="0" width="18" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+
+          <!-- Bank numbers (selected) -->
+          <text x="5" y="16" class="tiny" fill="white" font-weight="bold">0</text>
+          <text x="149" y="16" class="tiny" fill="white" font-weight="bold">8</text>
+          <text x="291" y="16" class="tiny" fill="white" font-weight="bold">16</text>
+          <text x="435" y="16" class="tiny" fill="white" font-weight="bold">24</text>
+
+          <!-- Thread annotations on conflicting banks -->
+          <text x="9" y="40" text-anchor="middle" class="tiny" fill="#C0392B">T0,4</text>
+          <text x="9" y="50" text-anchor="middle" class="tiny" fill="#C0392B">8,12</text>
+          <text x="153" y="40" text-anchor="middle" class="tiny" fill="#C0392B">T1,5</text>
+          <text x="153" y="50" text-anchor="middle" class="tiny" fill="#C0392B">9,13</text>
+          <text x="297" y="40" text-anchor="middle" class="tiny" fill="#C0392B">T2,6</text>
+          <text x="297" y="50" text-anchor="middle" class="tiny" fill="#C0392B">10,14</text>
+          <text x="441" y="40" text-anchor="middle" class="tiny" fill="#C0392B">T3,7</text>
+          <text x="441" y="50" text-anchor="middle" class="tiny" fill="#C0392B">11,15</text>
+        </g>
+
+        <text x="288" y="75" text-anchor="middle" class="tiny">Banks 0-31 (32 banks, 4 bytes each)</text>
+
+        <!-- Verdict -->
+        <rect x="0" y="85" width="580" height="26" fill="#FADBD8" stroke="#C0392B" rx="4"/>
+        <text x="290" y="103" text-anchor="middle" class="small" fill="#C0392B" font-weight="bold">4-way bank conflict: 4 threads hit each active bank (but different addresses)</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: C Output Store Coalescing                         -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1760" x2="1460" y2="1760" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1790" class="section-title">5. Writing C Output: Coalescing Analysis (Warp 0)</text>
+
+  <g transform="translate(60, 1810)">
+    <text x="0" y="0" class="small">Each thread writes its 8x8 sub-tile to C in global memory, row by row.</text>
+    <text x="0" y="16" class="small">For a fixed output row i, threads in the warp write to different columns:</text>
+
+    <g transform="translate(20, 35)">
+      <text x="0" y="0" class="code">Thread 0:  C[row, col  0 : col  7]  → 8 consecutive floats</text>
+      <text x="0" y="14" class="code">Thread 1:  C[row, col  8 : col 15]  → 8 consecutive floats</text>
+      <text x="0" y="28" class="code">Thread 2:  C[row, col 16 : col 23]  → 8 consecutive floats</text>
+      <text x="0" y="42" class="code">...</text>
+      <text x="0" y="56" class="code">Thread 15: C[row, col120 : col127]  → 8 consecutive floats</text>
+      <text x="0" y="76" class="code" fill="#555">(Threads 16-31 write to the same columns but rows 8-15)</text>
+
+      <!-- C output row visualization -->
+      <g transform="translate(0, 95)">
+        <text x="0" y="0" class="subtitle">One output row: threads 0-15 cover all 128 columns contiguously</text>
+        <!-- Row of colored blocks -->
+        <rect x="0" y="10" width="44" height="28" fill="#3498DB" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="22" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T0: 0-7</text>
+        <rect x="44" y="10" width="44" height="28" fill="#27AE60" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="66" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T1: 8-15</text>
+        <rect x="88" y="10" width="44" height="28" fill="#E67E22" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="110" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T2</text>
+        <rect x="132" y="10" width="44" height="28" fill="#8E44AD" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="154" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T3</text>
+        <rect x="176" y="10" width="44" height="28" fill="#1ABC9C" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="198" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T4</text>
+        <rect x="220" y="10" width="44" height="28" fill="#D35400" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="242" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T5</text>
+        <rect x="264" y="10" width="30" height="28" fill="#7F8C8D" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="279" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">...</text>
+        <rect x="294" y="10" width="50" height="28" fill="#2C3E50" opacity="0.6" stroke="#333" stroke-width="0.8" rx="2"/>
+        <text x="319" y="29" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T15: 120-127</text>
+
+        <text x="360" y="28" class="small" fill="#555">← 128 consecutive floats (512B)</text>
+      </g>
+
+      <rect x="0" y="148" width="520" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+      <text x="260" y="166" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">Warp writes are coalesced: 16 threads x 8 floats = 128 consecutive writes per row</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 6: Summary / Data Flow                               -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="2020" x2="1460" y2="2020" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="2050" class="section-title">6. Overall Data Flow Summary</text>
+
+  <g transform="translate(60, 2075)">
+    <!-- Pipeline stages -->
+    <!-- Stage 1: Global → Shared -->
+    <rect x="0" y="0" width="300" height="110" fill="#EBF5FB" stroke="#4A90D9" stroke-width="2" rx="8"/>
+    <text x="150" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">Global → Shared Memory</text>
+    <text x="10" y="42" class="code">Cooperative tile load (all 256 threads)</text>
+    <text x="10" y="58" class="code">A: 128x8 = 1024 floats (4 per thread)</text>
+    <text x="10" y="74" class="code">B: 8x128 = 1024 floats (4 per thread)</text>
+    <text x="10" y="92" class="code" fill="#C0392B">A: strided | </text>
+    <text x="120" y="92" class="code" fill="#1E8449">B: coalesced</text>
+
+    <!-- Arrow -->
+    <path d="M310,55 L360,55" class="arrow-bold"/>
+
+    <!-- Stage 2: Shared → Registers -->
+    <rect x="370" y="0" width="300" height="110" fill="#FDEBD0" stroke="#E67E22" stroke-width="2" rx="8"/>
+    <text x="520" y="22" text-anchor="middle" class="subtitle" fill="#E67E22">Shared → Registers</text>
+    <text x="380" y="42" class="code">Per k-step (k = 0..7):</text>
+    <text x="380" y="58" class="code">a_reg[8] ← As column k (TM loads)</text>
+    <text x="380" y="74" class="code">b_reg[8] ← Bs row k   (TN loads)</text>
+    <text x="380" y="92" class="code" fill="#1E8449">As: broadcast | </text>
+    <text x="515" y="92" class="code" fill="#C0392B">Bs: 4-way conflict</text>
+
+    <!-- Arrow -->
+    <path d="M680,55 L730,55" class="arrow-bold"/>
+
+    <!-- Stage 3: Compute -->
+    <rect x="740" y="0" width="280" height="110" fill="#FADBD8" stroke="#E74C3C" stroke-width="2" rx="8"/>
+    <text x="880" y="22" text-anchor="middle" class="subtitle" fill="#E74C3C">Register Compute (FMA)</text>
+    <text x="750" y="42" class="code">accum[i][j] += a[i] * b[j]</text>
+    <text x="750" y="58" class="code">8x8 = 64 FMAs per k-step</text>
+    <text x="750" y="74" class="code">x 8 k-steps = 512 FMAs/tile</text>
+    <text x="750" y="92" class="code bold" fill="#E74C3C">Compute:load = 4:1</text>
+
+    <!-- Arrow down from compute to store -->
+    <path d="M880,110 L880,135" class="arrow-bold"/>
+
+    <!-- Stage 4: Registers → Global -->
+    <rect x="740" y="140" width="280" height="65" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
+    <text x="880" y="162" text-anchor="middle" class="subtitle" fill="#27AE60">Registers → Global (Store C)</text>
+    <text x="750" y="182" class="code">8x8 accum → C global memory</text>
+    <text x="750" y="196" class="code" fill="#1E8449">Coalesced across warp</text>
+
+    <!-- Loop arrow back from stage 3 to stage 1 -->
+    <path d="M150,110 L150,145 L880,145 L880,135" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+    <text x="500" y="142" text-anchor="middle" class="small" fill="#888">repeat for each BLK_K tile along K dimension (K/8 iterations)</text>
+
+    <!-- Key insight box -->
+    <rect x="0" y="145" width="660" height="100" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="330" y="168" text-anchor="middle" class="subtitle">Key Insight: Register Tiling Amortizes Memory Access</text>
+    <text x="15" y="188" class="code">Without register tiling (TM=TN=1): 2 loads → 1 FMA  (ratio 0.5)</text>
+    <text x="15" y="204" class="code" fill="#1E8449">With register tiling  (TM=TN=8): 16 loads → 64 FMAs (ratio 4.0)</text>
+    <text x="15" y="222" class="code bold">→ 8x improvement in compute-to-memory-access efficiency</text>
+
+    <!-- syncthreads note -->
+    <g transform="translate(0, 260)">
+      <rect width="660" height="45" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="330" y="18" text-anchor="middle" class="small bold" fill="#7D6608">__syncthreads() placement:</text>
+      <text x="330" y="34" text-anchor="middle" class="small" fill="#7D6608">After cooperative smem load (before compute) AND after compute (before next tile load)</text>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <text x="750" y="2620" text-anchor="middle" class="tiny" fill="#AAA">matmul_tiled_reg&lt;128, 128, 8, 8, 8&gt; — Memory Access Pattern Diagram</text>
+</svg>

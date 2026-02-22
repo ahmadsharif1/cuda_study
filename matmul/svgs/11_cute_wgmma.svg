@@ -1,0 +1,489 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 2200" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8E44AD"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="2200" fill="#FAFAFA" rx="8"/>
+
+  <!-- ============================================================ -->
+  <!-- TITLE                                                         -->
+  <!-- ============================================================ -->
+  <text x="700" y="35" text-anchor="middle" class="title">SM90 WGMMA GEMM: Memory Access &amp; Compute Patterns</text>
+  <text x="700" y="55" text-anchor="middle" class="small">matmul_cute_wgmma: BLK_M=128, BLK_N=128, BLK_K=32, SM90_64x128x8_F32TF32TF32_SS_TN, 256 threads (2 warp groups)</text>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: SM90 WGMMA Atom & Tiling                          -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="70" x2="1360" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. SM90 WGMMA Atom &amp; Tiling</text>
+
+  <!-- MMA Atom visualization -->
+  <g transform="translate(60, 115)">
+    <text x="0" y="0" class="subtitle">SM90_64x128x8_F32TF32TF32_SS_TN — One Atom:</text>
+    <text x="0" y="16" class="small">One warp group (128 threads = 4 warps) computes C[64x128] += A[64x8] * B[128x8]</text>
+
+    <!-- A tile 64x8 -->
+    <g transform="translate(30, 35)">
+      <text x="20" y="-5" text-anchor="middle" class="subtitle" fill="#4A90D9">A [64x8]</text>
+      <rect width="32" height="120" class="a-light" stroke="#4A90D9" stroke-width="2" rx="2"/>
+      <text x="-10" y="8" text-anchor="end" class="tiny">0</text>
+      <text x="-10" y="62" text-anchor="end" class="tiny">32</text>
+      <text x="-10" y="118" text-anchor="end" class="tiny">63</text>
+      <text x="16" y="135" text-anchor="middle" class="dim-label">8</text>
+      <text x="-22" y="60" text-anchor="middle" class="dim-label" transform="rotate(-90,-22,60)">64 rows</text>
+    </g>
+
+    <!-- Multiply sign -->
+    <text x="102" y="100" text-anchor="middle" font-size="24" fill="#333">x</text>
+
+    <!-- B tile 128x8 (shown transposed as 8 high x 128 wide in compute view) -->
+    <g transform="translate(120, 55)">
+      <text x="100" y="-5" text-anchor="middle" class="subtitle" fill="#27AE60">B [128x8]</text>
+      <rect width="200" height="32" class="b-light" stroke="#27AE60" stroke-width="2" rx="2"/>
+      <text x="2" y="48" text-anchor="start" class="tiny">0</text>
+      <text x="98" y="48" text-anchor="middle" class="tiny">64</text>
+      <text x="194" y="48" text-anchor="end" class="tiny">127</text>
+      <text x="100" y="58" text-anchor="middle" class="dim-label">128 cols</text>
+      <text x="-14" y="18" text-anchor="middle" class="dim-label" transform="rotate(-90,-14,18)">8</text>
+    </g>
+
+    <!-- Equals sign -->
+    <text x="352" y="80" text-anchor="middle" font-size="24" fill="#333">=</text>
+
+    <!-- C tile 64x128 -->
+    <g transform="translate(370, 35)">
+      <text x="100" y="-5" text-anchor="middle" class="subtitle" fill="#E67E22">C [64x128]</text>
+      <rect width="200" height="120" class="c-light" stroke="#E67E22" stroke-width="2" rx="2"/>
+      <text x="100" y="135" text-anchor="middle" class="dim-label">128 cols</text>
+      <text x="-14" y="62" text-anchor="middle" class="dim-label" transform="rotate(-90,-14,62)">64 rows</text>
+      <!-- Label: SS -->
+      <text x="100" y="55" text-anchor="middle" class="small bold" fill="#E67E22">SS = both from smem</text>
+      <text x="100" y="70" text-anchor="middle" class="small" fill="#E67E22">65,536 FMAs/atom</text>
+    </g>
+
+    <!-- Stats -->
+    <g transform="translate(610, 35)">
+      <rect width="330" height="120" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="165" y="20" text-anchor="middle" class="subtitle">Atom Stats &amp; Tiling</text>
+      <line x1="10" y1="28" x2="320" y2="28" stroke="#EEE"/>
+      <text x="15" y="44" class="code">Atom: 64 x 128 x 8 = 65,536 FMAs</text>
+      <text x="15" y="60" class="code">Tiled Layout&lt;_2, _1, _1&gt;:</text>
+      <text x="15" y="76" class="code">  Atom 0 (WG0): rows  0-63,  cols 0-127</text>
+      <text x="15" y="92" class="code">  Atom 1 (WG1): rows 64-127, cols 0-127</text>
+      <text x="15" y="110" class="code bold" fill="#E67E22">Total: 128x128 per tiled_mma step (K=8)</text>
+    </g>
+  </g>
+
+  <!-- Tiling diagram: 2 atoms stacked -->
+  <g transform="translate(1020, 115)">
+    <text x="100" y="0" text-anchor="middle" class="subtitle">Tiled MMA: 2 Atoms in M</text>
+    <!-- Atom 0 -->
+    <rect x="0" y="15" width="200" height="60" fill="#F1C40F" opacity="0.4" stroke="#E67E22" stroke-width="1.5" rx="3"/>
+    <text x="100" y="42" text-anchor="middle" class="small bold" fill="#333">Warp Group 0: rows 0-63</text>
+    <text x="100" y="56" text-anchor="middle" class="tiny" fill="#666">128 threads (warps 0-3)</text>
+    <!-- Atom 1 -->
+    <rect x="0" y="75" width="200" height="60" fill="#3498DB" opacity="0.3" stroke="#E67E22" stroke-width="1.5" rx="3"/>
+    <text x="100" y="102" text-anchor="middle" class="small bold" fill="#333">Warp Group 1: rows 64-127</text>
+    <text x="100" y="116" text-anchor="middle" class="tiny" fill="#666">128 threads (warps 4-7)</text>
+    <!-- Dimensions -->
+    <text x="100" y="150" text-anchor="middle" class="dim-label">128 cols (0-127)</text>
+    <text x="-14" y="75" text-anchor="middle" class="dim-label" transform="rotate(-90,-14,75)">128 rows</text>
+  </g>
+
+  <!-- K-iteration info -->
+  <g transform="translate(60, 285)">
+    <rect width="580" height="28" fill="#EBF5FB" stroke="#4A90D9" rx="4"/>
+    <text x="290" y="19" text-anchor="middle" class="small bold" fill="#2C3E50">gemm() iterates: 1M x 1N x 4K atoms (BLK_K=32, atom K=8) = 4 x 65,536 = 262,144 FMAs per k-tile</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: KEY DIFFERENCE - No smem->register Copy           -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="330" x2="1360" y2="330" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="355" class="section-title">2. KEY DIFFERENCE: No Shared Memory to Register Copy for A, B</text>
+
+  <!-- Side-by-side comparison -->
+  <g transform="translate(60, 375)">
+    <!-- LEFT: cute_smem approach -->
+    <rect width="600" height="145" fill="#FADBD8" stroke="#C0392B" stroke-width="1.5" rx="6"/>
+    <text x="300" y="20" text-anchor="middle" class="subtitle" fill="#C0392B">Previous: cute_smem (SM80 mma.sync)</text>
+    <line x1="10" y1="28" x2="590" y2="28" stroke="#C0392B" opacity="0.3"/>
+    <text x="15" y="46" class="code">copy(tCsA, tCrA);   // smem A -> registers (explicit copy)</text>
+    <text x="15" y="62" class="code">copy(tCsB, tCrB);   // smem B -> registers (explicit copy)</text>
+    <text x="15" y="78" class="code">gemm(tCrA, tCrB, tCrC);  // MMA reads A,B from registers</text>
+    <line x1="15" y1="88" x2="585" y2="88" stroke="#C0392B" opacity="0.3"/>
+    <text x="15" y="106" class="code" fill="#C0392B">3 steps: copy A + copy B + gemm</text>
+    <text x="15" y="122" class="code" fill="#C0392B">A and B consume register file space</text>
+    <text x="15" y="138" class="code" fill="#C0392B">Extra copy latency before compute can begin</text>
+  </g>
+
+  <g transform="translate(700, 375)">
+    <!-- RIGHT: wgmma approach -->
+    <rect width="600" height="145" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" rx="6"/>
+    <text x="300" y="20" text-anchor="middle" class="subtitle" fill="#1E8449">New: wgmma (SM90 descriptors)</text>
+    <line x1="10" y1="28" x2="590" y2="28" stroke="#27AE60" opacity="0.3"/>
+    <text x="15" y="46" class="code">// NO copy step for A or B!</text>
+    <text x="15" y="62" class="code">gemm(tiled_mma, tCsA, tCsB, tCrC);</text>
+    <text x="15" y="78" class="code">// A,B are smem DESCRIPTORS, not register tensors</text>
+    <line x1="15" y1="88" x2="585" y2="88" stroke="#27AE60" opacity="0.3"/>
+    <text x="15" y="106" class="code" fill="#1E8449">1 step: wgmma reads A,B directly from shared memory</text>
+    <text x="15" y="122" class="code" fill="#1E8449">Only C accumulator lives in registers</text>
+    <text x="15" y="138" class="code" fill="#1E8449">Saves registers + eliminates copy latency</text>
+  </g>
+
+  <!-- Warpgroup synchronization -->
+  <g transform="translate(60, 540)">
+    <rect width="580" height="120" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="290" y="20" text-anchor="middle" class="subtitle">Warpgroup Synchronization (required for wgmma)</text>
+    <line x1="10" y1="28" x2="570" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code">warpgroup_fence_operand(tCrC);  // fence C register accesses</text>
+    <text x="15" y="62" class="code">warpgroup_arrive();             // signal warp group ready</text>
+    <text x="15" y="78" class="code">gemm(tiled_mma, tCsA, tCsB, tCrC); // issue wgmma instrs</text>
+    <text x="15" y="94" class="code">warpgroup_commit_batch();       // commit batch</text>
+    <text x="15" y="110" class="code">warpgroup_wait&lt;0&gt;();            // wait for completion</text>
+  </g>
+
+  <!-- Visual data flow comparison -->
+  <g transform="translate(700, 540)">
+    <rect width="600" height="120" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="300" y="20" text-anchor="middle" class="subtitle">Data Path Comparison</text>
+    <line x1="10" y1="28" x2="590" y2="28" stroke="#EEE"/>
+
+    <!-- cute_smem path -->
+    <text x="15" y="48" class="code" fill="#C0392B">cute_smem:</text>
+    <rect x="110" y="36" width="60" height="18" class="a-light" stroke="#4A90D9" stroke-width="1" rx="3"/>
+    <text x="140" y="50" text-anchor="middle" class="tiny">smem</text>
+    <path d="M175,45 L195,45" class="arrow"/>
+    <rect x="200" y="36" width="50" height="18" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+    <text x="225" y="50" text-anchor="middle" class="tiny">regs</text>
+    <path d="M255,45 L275,45" class="arrow"/>
+    <rect x="280" y="36" width="50" height="18" fill="url(#fma-grad)" opacity="0.5" stroke="#E67E22" stroke-width="1" rx="3"/>
+    <text x="305" y="50" text-anchor="middle" class="tiny">MMA</text>
+
+    <!-- wgmma path -->
+    <text x="15" y="80" class="code" fill="#1E8449">wgmma:</text>
+    <rect x="110" y="68" width="60" height="18" class="a-light" stroke="#4A90D9" stroke-width="1" rx="3"/>
+    <text x="140" y="82" text-anchor="middle" class="tiny">smem</text>
+    <path d="M175,77 L275,77" class="arrow"/>
+    <rect x="280" y="68" width="60" height="18" fill="url(#fma-grad)" opacity="0.5" stroke="#E67E22" stroke-width="1" rx="3"/>
+    <text x="310" y="82" text-anchor="middle" class="tiny">WGMMA</text>
+    <text x="360" y="82" class="tiny" fill="#1E8449">direct!</text>
+
+    <text x="15" y="110" class="small bold" fill="#1E8449">wgmma hardware reads smem via descriptors (no register copy)</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Swizzled Shared Memory                            -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="680" x2="1360" y2="680" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="705" class="section-title">3. Swizzled Shared Memory (GMMA::Layout_K_SW128_Atom&lt;float&gt;)</text>
+
+  <g transform="translate(60, 725)">
+    <!-- Explanation box -->
+    <rect width="620" height="195" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="310" y="20" text-anchor="middle" class="subtitle">SW128 = 128-Byte Swizzle Pattern</text>
+    <line x1="10" y1="28" x2="610" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code">XOR-based address remapping within 128B sectors</text>
+    <text x="15" y="62" class="code">Purpose: bank-conflict-free access for wgmma hardware</text>
+    <text x="15" y="82" class="code">Logical addr:  smem[row][col]</text>
+    <text x="15" y="98" class="code">Physical addr: smem[row][col XOR f(row)]</text>
+    <text x="15" y="118" class="code">where f(row) derives from row bits, within 128B sector</text>
+    <line x1="15" y1="128" x2="605" y2="128" stroke="#EEE"/>
+    <text x="15" y="146" class="code bold" fill="#1E8449">No wasted memory (unlike padding)</text>
+    <text x="15" y="162" class="code bold" fill="#1E8449">Swizzle is a permutation, not extra space</text>
+    <text x="15" y="180" class="code">Both A and B use the same swizzle atom</text>
+  </g>
+
+  <!-- Visual: swizzle pattern -->
+  <g transform="translate(720, 725)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle">Swizzle Effect on Bank Access</text>
+
+    <!-- Without swizzle -->
+    <g transform="translate(0, 20)">
+      <text x="0" y="0" class="small bold" fill="#C0392B">Without swizzle (naive):</text>
+      <!-- 8 bank boxes, some conflicting -->
+      <rect x="0" y="10" width="38" height="22" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="40" y="10" width="38" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="80" y="10" width="38" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="120" y="10" width="38" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="160" y="10" width="38" height="22" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="10" width="38" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="240" y="10" width="38" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="280" y="10" width="38" height="22" fill="#ECF0F1" stroke="#333" stroke-width="0.5" rx="1"/>
+      <text x="8" y="25" class="tiny" fill="white" font-weight="bold">B0</text>
+      <text x="48" y="25" class="tiny">B1</text>
+      <text x="88" y="25" class="tiny">B2</text>
+      <text x="128" y="25" class="tiny">B3</text>
+      <text x="168" y="25" class="tiny" fill="white" font-weight="bold">B0</text>
+      <text x="208" y="25" class="tiny">B1</text>
+      <text x="248" y="25" class="tiny">B2</text>
+      <text x="288" y="25" class="tiny">B3</text>
+      <text x="330" y="26" class="tiny" fill="#C0392B">bank conflicts!</text>
+    </g>
+
+    <!-- With swizzle -->
+    <g transform="translate(0, 70)">
+      <text x="0" y="0" class="small bold" fill="#1E8449">With SW128 swizzle:</text>
+      <!-- 8 bank boxes, all unique -->
+      <rect x="0" y="10" width="38" height="22" fill="#27AE60" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="40" y="10" width="38" height="22" fill="#3498DB" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="80" y="10" width="38" height="22" fill="#E67E22" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="120" y="10" width="38" height="22" fill="#8E44AD" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="160" y="10" width="38" height="22" fill="#1ABC9C" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="10" width="38" height="22" fill="#D35400" opacity="0.4" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="240" y="10" width="38" height="22" fill="#2C3E50" opacity="0.3" stroke="#333" stroke-width="0.5" rx="1"/>
+      <rect x="280" y="10" width="38" height="22" fill="#F1C40F" opacity="0.5" stroke="#333" stroke-width="0.5" rx="1"/>
+      <text x="8" y="25" class="tiny" font-weight="bold">B0</text>
+      <text x="48" y="25" class="tiny" font-weight="bold">B5</text>
+      <text x="88" y="25" class="tiny" font-weight="bold">B2</text>
+      <text x="128" y="25" class="tiny" font-weight="bold">B7</text>
+      <text x="168" y="25" class="tiny" font-weight="bold">B4</text>
+      <text x="208" y="25" class="tiny" font-weight="bold">B1</text>
+      <text x="248" y="25" class="tiny" font-weight="bold">B6</text>
+      <text x="288" y="25" class="tiny" font-weight="bold">B3</text>
+      <text x="330" y="26" class="tiny" fill="#1E8449">all unique banks!</text>
+    </g>
+
+    <!-- Key point -->
+    <g transform="translate(0, 120)">
+      <rect width="560" height="28" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+      <text x="280" y="19" text-anchor="middle" class="small bold" fill="#1E8449">XOR remapping ensures wgmma's hardware access pattern hits unique banks</text>
+    </g>
+
+    <!-- Must match note -->
+    <g transform="translate(0, 158)">
+      <rect width="560" height="28" fill="#FCF3CF" stroke="#F1C40F" rx="4"/>
+      <text x="280" y="19" text-anchor="middle" class="small bold" fill="#7D6608">Swizzle pattern must match what the wgmma instruction expects</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: cp_async Global -> Swizzled Shared Memory         -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="945" x2="1360" y2="945" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="970" class="section-title">4. cp_async: Global Memory to Swizzled Shared Memory</text>
+
+  <g transform="translate(60, 990)">
+    <!-- Copy atom details -->
+    <rect width="620" height="165" fill="white" stroke="#333" stroke-width="1" rx="6"/>
+    <text x="310" y="20" text-anchor="middle" class="subtitle">SM80_CP_ASYNC_CACHEGLOBAL&lt;uint128_t&gt; (128-bit = 4 floats)</text>
+    <line x1="10" y1="28" x2="610" y2="28" stroke="#EEE"/>
+    <text x="15" y="46" class="code">Thread layout: &lt;_32, _8, Stride&lt;_8, _1&gt;&gt;</text>
+    <text x="15" y="62" class="code">  32 M-groups x 8 K-groups, strided: tid maps to (tid/8, tid%8)</text>
+    <text x="15" y="78" class="code">Value layout:  &lt;_1, _4&gt;</text>
+    <text x="15" y="94" class="code">  Each thread loads 1x4 = 4 consecutive floats along K</text>
+    <line x1="15" y1="104" x2="605" y2="104" stroke="#EEE"/>
+    <text x="15" y="122" class="code">Per pass: 32 rows x (8 threads x 4 floats) = 32 x 32 elements</text>
+    <text x="15" y="138" class="code">Passes for A: BLK_M/32 = 128/32 = 4 passes for full tile</text>
+    <text x="15" y="154" class="code">Passes for B: BLK_N/32 = 128/32 = 4 passes (same layout)</text>
+  </g>
+
+  <!-- Coalescing analysis -->
+  <g transform="translate(720, 990)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle">Coalescing Pattern</text>
+
+    <!-- A coalescing -->
+    <g transform="translate(0, 20)">
+      <text x="0" y="0" class="small bold" fill="#4A90D9">Loading A (M x K, K contiguous):</text>
+      <!-- Warp view: 4 rows, each loading 4 floats along K -->
+      <g transform="translate(0, 12)">
+        <!-- Show 4 warp lanes loading adjacent K positions -->
+        <rect x="0" y="0" width="120" height="18" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="2"/>
+        <text x="5" y="13" class="tiny" fill="white" font-weight="bold">T0: 4 floats (K=0..3)</text>
+        <rect x="120" y="0" width="120" height="18" fill="#27AE60" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="2"/>
+        <text x="125" y="13" class="tiny" fill="white" font-weight="bold">T1: 4 floats (K=4..7)</text>
+        <rect x="240" y="0" width="120" height="18" fill="#E67E22" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="2"/>
+        <text x="245" y="13" class="tiny" fill="white" font-weight="bold">T2: K=8..11</text>
+        <rect x="360" y="0" width="120" height="18" fill="#8E44AD" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="2"/>
+        <text x="365" y="13" class="tiny" fill="white" font-weight="bold">... T7: K=28..31</text>
+        <text x="490" y="13" class="tiny">row 0</text>
+      </g>
+      <text x="0" y="45" class="small" fill="#555">8 threads x 4 floats = 32 floats = 128B per row (1 cache line)</text>
+      <rect x="0" y="52" width="380" height="22" fill="#D5F5E3" stroke="#27AE60" rx="3"/>
+      <text x="190" y="68" text-anchor="middle" class="small bold" fill="#1E8449">K contiguous: 4 cache lines per warp (4 rows)</text>
+    </g>
+
+    <!-- B coalescing -->
+    <g transform="translate(0, 98)">
+      <text x="0" y="0" class="small bold" fill="#27AE60">Loading B_T (N x K, K contiguous):</text>
+      <text x="0" y="16" class="small" fill="#555">Same layout as A: K is contiguous dimension</text>
+      <rect x="0" y="22" width="380" height="22" fill="#D5F5E3" stroke="#27AE60" rx="3"/>
+      <text x="190" y="38" text-anchor="middle" class="small bold" fill="#1E8449">Same coalescing: 4 cache lines per warp (4 N-rows)</text>
+    </g>
+
+    <!-- Note about swizzled write -->
+    <g transform="translate(0, 148)">
+      <rect width="560" height="26" fill="#FCF3CF" stroke="#F1C40F" rx="4"/>
+      <text x="280" y="18" text-anchor="middle" class="small bold" fill="#7D6608">cp_async writes into swizzled layout -- CuTe handles address remapping</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: Data Flow Summary & Comparison                    -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1200" x2="1360" y2="1200" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1225" class="section-title">5. Data Flow Summary &amp; Comparison</text>
+
+  <g transform="translate(60, 1250)">
+    <!-- Pipeline stages for wgmma -->
+    <!-- Stage 1: Global -> Swizzled Shared -->
+    <rect x="0" y="0" width="280" height="100" fill="#EBF5FB" stroke="#4A90D9" stroke-width="2" rx="8"/>
+    <text x="140" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">Global Memory</text>
+    <text x="10" y="42" class="code">cp_async (128-bit)</text>
+    <text x="10" y="58" class="code">A: 128x32 = 4096 floats</text>
+    <text x="10" y="74" class="code">B: 128x32 = 4096 floats</text>
+    <text x="10" y="90" class="code" fill="#1E8449">K-contiguous: coalesced</text>
+
+    <!-- Arrow -->
+    <path d="M290,50 L340,50" class="arrow-bold"/>
+    <text x="315" y="42" text-anchor="middle" class="tiny">cp_async</text>
+
+    <!-- Stage 2: Swizzled Shared -->
+    <rect x="350" y="0" width="250" height="100" fill="#D7BDE2" stroke="#8E44AD" stroke-width="2" rx="8"/>
+    <text x="475" y="22" text-anchor="middle" class="subtitle" fill="#8E44AD">Swizzled Shared Memory</text>
+    <text x="360" y="42" class="code">SW128 XOR-swizzled layout</text>
+    <text x="360" y="58" class="code">Bank-conflict-free for wgmma</text>
+    <text x="360" y="74" class="code">float + tfloat32_t views</text>
+    <text x="360" y="90" class="code bold" fill="#8E44AD">A,B descriptors (not copied!)</text>
+
+    <!-- Arrow -->
+    <path d="M610,50 L660,50" class="arrow-bold"/>
+    <text x="635" y="42" text-anchor="middle" class="tiny">wgmma</text>
+    <text x="635" y="56" text-anchor="middle" class="tiny">descriptor</text>
+
+    <!-- Stage 3: Tensor Core Compute -->
+    <rect x="670" y="0" width="250" height="100" fill="#FADBD8" stroke="#E74C3C" stroke-width="2" rx="8"/>
+    <text x="795" y="22" text-anchor="middle" class="subtitle" fill="#E74C3C">Tensor Core (WGMMA)</text>
+    <text x="680" y="42" class="code">C[128x128] += A * B</text>
+    <text x="680" y="58" class="code">262,144 FMAs per k-tile</text>
+    <text x="680" y="74" class="code bold" fill="#E74C3C">NO smem-to-reg copy!</text>
+    <text x="680" y="90" class="code">Only C in registers</text>
+
+    <!-- Arrow down to store -->
+    <path d="M795,100 L795,118" class="arrow-bold"/>
+
+    <!-- Stage 4: Registers -> Global -->
+    <rect x="670" y="120" width="250" height="50" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
+    <text x="795" y="142" text-anchor="middle" class="subtitle" fill="#27AE60">Registers to Global (Store C)</text>
+    <text x="680" y="158" class="code" fill="#1E8449">copy(tCrC, tCgC)</text>
+
+    <!-- Loop arrow -->
+    <path d="M140,100 L140,130 L795,130 L795,120" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+    <text x="430" y="128" text-anchor="middle" class="small" fill="#888">repeat for K/32 k-tiles</text>
+  </g>
+
+  <!-- Comparison table -->
+  <g transform="translate(60, 1440)">
+    <text x="0" y="0" class="subtitle">Kernel Progression:</text>
+
+    <!-- cute_smem -->
+    <g transform="translate(0, 18)">
+      <text x="0" y="0" class="code" fill="#C0392B">cute_smem:  </text>
+      <rect x="120" y="-12" width="70" height="18" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="3"/>
+      <text x="155" y="2" text-anchor="middle" class="tiny">cp_async</text>
+      <path d="M195,-3 L205,-3" class="arrow"/>
+      <rect x="210" y="-12" width="50" height="18" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1" rx="3"/>
+      <text x="235" y="2" text-anchor="middle" class="tiny">smem</text>
+      <path d="M265,-3 L275,-3" class="arrow"/>
+      <rect x="280" y="-12" width="80" height="18" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="320" y="2" text-anchor="middle" class="tiny" fill="#C0392B">copy to regs</text>
+      <path d="M365,-3 L375,-3" class="arrow"/>
+      <rect x="380" y="-12" width="60" height="18" fill="url(#fma-grad)" opacity="0.5" stroke="#E67E22" stroke-width="1" rx="3"/>
+      <text x="410" y="2" text-anchor="middle" class="tiny">mma.sync</text>
+      <path d="M445,-3 L455,-3" class="arrow"/>
+      <rect x="460" y="-12" width="50" height="18" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="485" y="2" text-anchor="middle" class="tiny">regs</text>
+      <path d="M515,-3 L525,-3" class="arrow"/>
+      <rect x="530" y="-12" width="50" height="18" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="555" y="2" text-anchor="middle" class="tiny">global</text>
+    </g>
+
+    <!-- cute_wgmma -->
+    <g transform="translate(0, 46)">
+      <text x="0" y="0" class="code bold" fill="#1E8449">cute_wgmma: </text>
+      <rect x="120" y="-12" width="70" height="18" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1" rx="3"/>
+      <text x="155" y="2" text-anchor="middle" class="tiny">cp_async</text>
+      <path d="M195,-3 L205,-3" class="arrow"/>
+      <rect x="210" y="-12" width="80" height="18" fill="#D7BDE2" stroke="#8E44AD" stroke-width="1" rx="3"/>
+      <text x="250" y="2" text-anchor="middle" class="tiny">swizzled smem</text>
+      <path d="M295,-3 L305,-3" class="arrow"/>
+      <rect x="310" y="-12" width="90" height="18" fill="url(#fma-grad)" opacity="0.5" stroke="#E67E22" stroke-width="1" rx="3"/>
+      <text x="355" y="2" text-anchor="middle" class="tiny">wgmma(desc)</text>
+      <path d="M405,-3 L415,-3" class="arrow"/>
+      <rect x="420" y="-12" width="50" height="18" fill="#ECF0F1" stroke="#333" stroke-width="1" rx="3"/>
+      <text x="445" y="2" text-anchor="middle" class="tiny">regs</text>
+      <path d="M475,-3 L485,-3" class="arrow"/>
+      <rect x="490" y="-12" width="50" height="18" fill="#D5F5E3" stroke="#27AE60" stroke-width="1" rx="3"/>
+      <text x="515" y="2" text-anchor="middle" class="tiny">global</text>
+      <text x="555" y="2" class="small bold" fill="#1E8449">shorter path!</text>
+    </g>
+  </g>
+
+  <!-- Key differences box -->
+  <g transform="translate(60, 1510)">
+    <rect width="620" height="100" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="310" y="22" text-anchor="middle" class="subtitle">Key Differences vs cute_smem</text>
+    <line x1="10" y1="30" x2="610" y2="30" stroke="#EEE"/>
+    <text x="15" y="48" class="code" fill="#1E8449">+ Eliminates smem-to-register copy for A and B</text>
+    <text x="15" y="64" class="code" fill="#1E8449">+ Much larger atom: 64x128x8 vs 16x8x8 (512x more FMAs/atom)</text>
+    <text x="15" y="80" class="code" fill="#1E8449">+ Less register pressure (only C accumulator in regs)</text>
+    <text x="15" y="96" class="code" fill="#C0392B">- Requires SM90 (Hopper), pre-transposed B, swizzled smem</text>
+  </g>
+
+  <!-- Requirements box -->
+  <g transform="translate(720, 1510)">
+    <rect width="560" height="100" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1.5" rx="6"/>
+    <text x="280" y="22" text-anchor="middle" class="subtitle" fill="#7D6608">Requirements</text>
+    <line x1="10" y1="30" x2="550" y2="30" stroke="#F1C40F" opacity="0.5"/>
+    <text x="15" y="48" class="code">SM90 (Hopper) GPU required</text>
+    <text x="15" y="64" class="code">Pre-transposed B: B_T stored as (N,K) with K contiguous</text>
+    <text x="15" y="80" class="code">Swizzled smem: GMMA::Layout_K_SW128_Atom&lt;float&gt;</text>
+    <text x="15" y="96" class="code">warpgroup_fence/arrive/commit/wait synchronization</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="2180" text-anchor="middle" class="tiny" fill="#AAA">matmul_cute_wgmma&lt;128, 128, 32&gt; -- SM90 WGMMA Memory Access Pattern Diagram</text>
+</svg>

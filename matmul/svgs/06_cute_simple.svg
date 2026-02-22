@@ -1,0 +1,461 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1800" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8E44AD"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1800" fill="#FAFAFA" rx="8"/>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: Block Tile & MMA Organization                     -->
+  <!-- ============================================================ -->
+  <text x="700" y="35" text-anchor="middle" class="title">CuTe Simple MMA: Memory Access &amp; Compute Patterns</text>
+  <text x="700" y="55" text-anchor="middle" class="small">BLK_M=128, BLK_N=128, BLK_K=8, MMA atom: SM80_16x8x8_F32TF32TF32F32_TN, tiled 2x2, 128 threads (4 warps), NO shared memory</text>
+
+  <line x1="40" y1="70" x2="1360" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. Block Tile &amp; MMA Organization</text>
+
+  <!-- A tile (128 x 8) -->
+  <g transform="translate(80, 120)">
+    <text x="25" y="-5" text-anchor="middle" class="subtitle">A [global]</text>
+    <rect width="48" height="192" class="a-light" stroke="#4A90D9" stroke-width="2" rx="2"/>
+    <text x="-10" y="8" text-anchor="end" class="tiny">0</text>
+    <text x="-10" y="98" text-anchor="end" class="tiny">64</text>
+    <text x="-10" y="190" text-anchor="end" class="tiny">127</text>
+    <text x="24" y="210" text-anchor="middle" class="dim-label">8 cols</text>
+    <text x="-25" y="96" text-anchor="middle" class="dim-label" transform="rotate(-90,-25,96)">128 rows</text>
+    <line x1="0" y1="48" x2="48" y2="48" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="96" x2="48" y2="96" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="144" x2="48" y2="144" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <!-- MMA atom 16x8 highlight -->
+    <rect width="48" height="24" fill="#4A90D9" opacity="0.3" rx="1"/>
+    <text x="24" y="16" text-anchor="middle" class="tiny" fill="#2C3E50" font-weight="bold">16x8</text>
+  </g>
+
+  <text x="175" y="230" text-anchor="middle" font-size="28" fill="#333">x</text>
+
+  <!-- B tile (8 x 128) -->
+  <g transform="translate(210, 180)">
+    <text x="96" y="-5" text-anchor="middle" class="subtitle">B [global]</text>
+    <rect width="192" height="48" class="b-light" stroke="#27AE60" stroke-width="2" rx="2"/>
+    <text x="2" y="65" text-anchor="start" class="tiny">0</text>
+    <text x="94" y="65" text-anchor="middle" class="tiny">64</text>
+    <text x="186" y="65" text-anchor="end" class="tiny">127</text>
+    <text x="96" y="78" text-anchor="middle" class="dim-label">128 cols</text>
+    <text x="-18" y="24" text-anchor="middle" class="dim-label" transform="rotate(-90,-18,24)">8 rows</text>
+    <line x1="48" y1="0" x2="48" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <line x1="96" y1="0" x2="96" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <line x1="144" y1="0" x2="144" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <!-- MMA atom 8x8 highlight -->
+    <rect width="12" height="48" fill="#27AE60" opacity="0.3" rx="1"/>
+    <text x="6" y="28" text-anchor="middle" class="tiny" fill="#1E4D30" font-weight="bold" transform="rotate(-90,6,28)">8x8</text>
+  </g>
+
+  <text x="445" y="218" text-anchor="middle" font-size="28" fill="#333">=</text>
+
+  <!-- C tile (128 x 128) -->
+  <g transform="translate(480, 120)">
+    <text x="96" y="-5" text-anchor="middle" class="subtitle">C [128x128 output]</text>
+    <rect width="192" height="192" class="c-light" stroke="#E67E22" stroke-width="2" rx="2"/>
+
+    <!-- 4M x 8N MMA iteration grid -->
+    <line x1="48" y1="0" x2="48" y2="192" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="96" y1="0" x2="96" y2="192" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="144" y1="0" x2="144" y2="192" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="0" y1="48" x2="192" y2="48" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="0" y1="96" x2="192" y2="96" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="0" y1="144" x2="192" y2="144" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+
+    <!-- Tiled MMA step (32x16) highlight -->
+    <rect width="24" height="48" fill="#F1C40F" opacity="0.45" rx="1"/>
+
+    <!-- Single MMA atom (16x8) -->
+    <rect width="12" height="24" fill="#E74C3C" opacity="0.5" rx="1"/>
+
+    <text x="96" y="206" text-anchor="middle" class="small">gemm() iterates 4M x 8N over 128x128 tile</text>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(700, 130)">
+    <rect width="12" height="12" fill="#E74C3C" opacity="0.5" stroke="#333" stroke-width="0.5"/>
+    <text x="18" y="11" class="small">1 MMA atom: C[16x8] += A[16x8] * B[8x8]</text>
+    <rect y="18" width="12" height="12" fill="#F1C40F" opacity="0.45" stroke="#333" stroke-width="0.5"/>
+    <text x="18" y="29" class="small">1 tiled_mma step: 32x16 (2x2 atoms, 4 warps)</text>
+    <rect y="36" width="12" height="12" class="c-light" stroke="#E67E22" stroke-width="0.5"/>
+    <text x="18" y="47" class="small">Full tile: 4 M-steps x 8 N-steps = 32 tiled steps</text>
+  </g>
+
+  <!-- MMA organization details -->
+  <g transform="translate(700, 200)">
+    <text x="0" y="0" class="subtitle">MMA Tiling Breakdown:</text>
+    <text x="0" y="18" class="code">MMA Atom: SM80_16x8x8 (C[16x8] += A[16x8] * B[8x8])</text>
+    <text x="0" y="32" class="code">  32 threads per atom, each does 4 FMAs</text>
+    <text x="0" y="48" class="code">Tiled 2x2x1: 4 atoms = 128 threads</text>
+    <text x="0" y="62" class="code">  Output per step: 2*16 x 2*8 = 32 x 16</text>
+    <text x="0" y="82" class="code">gemm() iteration counts:</text>
+    <text x="0" y="96" class="code">  M: 128/32 = 4 steps</text>
+    <text x="0" y="110" class="code">  N: 128/16 = 8 steps</text>
+    <text x="0" y="124" class="code">  K: BLK_K/8 = 1 step per k-tile (atom K=8)</text>
+    <text x="0" y="144" class="code bold" fill="#C0392B">K-tiles: K/BLK_K = K/8 outer loop iterations</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: Global Memory Access Pattern                      -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="370" x2="1360" y2="370" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="398" class="section-title">2. Global Memory Access Pattern (KEY ISSUE: No Shared Memory)</text>
+
+  <!-- Left: Loading A from global -->
+  <g transform="translate(60, 420)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#C0392B">Loading A Fragment: Direct Global Memory Read</text>
+    <text x="280" y="18" text-anchor="middle" class="small">copy(thr_mma.partition_A(gA(_, _, k)), tCrA) -- MMA partition layout, NOT optimized for global coalescing</text>
+
+    <!-- Show MMA atom A partition for warp 0 -->
+    <g transform="translate(30, 40)">
+      <text x="0" y="0" class="subtitle" fill="#4A90D9">MMA Atom A Partition (16x8 tile, 32 threads):</text>
+      <text x="0" y="16" class="small">Each thread loads specific (row, k) pairs from a 16x8 region of A</text>
+
+      <!-- 16x8 A tile fragment -->
+      <g transform="translate(0, 30)">
+        <rect width="160" height="128" class="a-light" stroke="#4A90D9" stroke-width="1.5" rx="2"/>
+        <!-- Column headers -->
+        <text x="10" y="-4" text-anchor="middle" class="tiny">k0</text>
+        <text x="30" y="-4" text-anchor="middle" class="tiny">k1</text>
+        <text x="50" y="-4" text-anchor="middle" class="tiny">k2</text>
+        <text x="70" y="-4" text-anchor="middle" class="tiny">k3</text>
+        <text x="90" y="-4" text-anchor="middle" class="tiny">k4</text>
+        <text x="110" y="-4" text-anchor="middle" class="tiny">k5</text>
+        <text x="130" y="-4" text-anchor="middle" class="tiny">k6</text>
+        <text x="150" y="-4" text-anchor="middle" class="tiny">k7</text>
+
+        <!-- Row labels -->
+        <text x="-8" y="10" text-anchor="end" class="tiny">r0</text>
+        <text x="-8" y="26" text-anchor="end" class="tiny">r1</text>
+        <text x="-8" y="42" text-anchor="end" class="tiny">r2</text>
+        <text x="-8" y="58" text-anchor="end" class="tiny">r3</text>
+        <text x="-8" y="74" text-anchor="end" class="tiny">r4</text>
+        <text x="-8" y="90" text-anchor="end" class="tiny">r5</text>
+        <text x="-8" y="106" text-anchor="end" class="tiny">r6</text>
+        <text x="-8" y="122" text-anchor="end" class="tiny">r7</text>
+
+        <!-- Thread scatter pattern (SM80 MMA A partition) -->
+        <!-- T0 loads A[r0,k0], A[r0,k1], A[r1,k0], A[r1,k1] etc. scattered! -->
+        <rect x="0" y="0" width="20" height="8" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="0" y="8" width="20" height="8" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="10" y="7" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T0</text>
+
+        <rect x="40" y="0" width="20" height="8" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="40" y="8" width="20" height="8" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="50" y="7" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T1</text>
+
+        <rect x="80" y="0" width="20" height="8" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="80" y="8" width="20" height="8" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="90" y="7" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T2</text>
+
+        <rect x="120" y="0" width="20" height="8" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="120" y="8" width="20" height="8" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="130" y="7" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T3</text>
+
+        <!-- More thread scatter across rows -->
+        <rect x="0" y="32" width="20" height="8" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="0" y="40" width="20" height="8" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="0" y="64" width="20" height="8" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="0" y="72" width="20" height="8" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="0" y="96" width="20" height="8" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <rect x="0" y="104" width="20" height="8" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+
+        <text x="80" y="68" text-anchor="middle" class="tiny" fill="#555">Thread pattern</text>
+        <text x="80" y="80" text-anchor="middle" class="tiny" fill="#555">repeats across</text>
+        <text x="80" y="92" text-anchor="middle" class="tiny" fill="#555">16 rows</text>
+
+        <!-- Dimension labels -->
+        <text x="80" y="144" text-anchor="middle" class="dim-label">8 (K dimension)</text>
+        <text x="-18" y="64" text-anchor="middle" class="dim-label" transform="rotate(-90,-18,64)">16 (M dimension)</text>
+      </g>
+
+      <!-- Problem explanation -->
+      <g transform="translate(190, 30)">
+        <rect x="0" y="0" width="340" height="130" fill="#FADBD8" stroke="#C0392B" stroke-width="1" rx="4"/>
+        <text x="170" y="18" text-anchor="middle" class="small bold" fill="#C0392B">Why This Is Problematic for Global Memory:</text>
+        <text x="10" y="36" class="code">MMA partition scatters threads across the</text>
+        <text x="10" y="50" class="code">16x8 tile in a pattern designed for smem/regs</text>
+        <text x="10" y="68" class="code" fill="#C0392B">Adjacent threads do NOT read adjacent</text>
+        <text x="10" y="82" class="code" fill="#C0392B">addresses in row-major global memory!</text>
+        <text x="10" y="100" class="code">T0 reads A[r0, k0:k1] (stride K apart from</text>
+        <text x="10" y="114" class="code">T4 which reads A[r0+8, k0:k1])</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right: Loading B from global -->
+  <g transform="translate(700, 420)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#C0392B">Loading B Fragment: Same Problem</text>
+    <text x="280" y="18" text-anchor="middle" class="small">copy(thr_mma.partition_B(gB(_, _, k)), tCrB) -- MMA partition, not memory-optimal</text>
+
+    <g transform="translate(30, 40)">
+      <text x="0" y="0" class="subtitle" fill="#27AE60">MMA Atom B Partition (8x8 tile, 32 threads):</text>
+      <text x="0" y="16" class="small">B stored (K,N) row-major, viewed (N,K) for TN MMA</text>
+
+      <g transform="translate(0, 30)">
+        <rect width="120" height="64" class="b-light" stroke="#27AE60" stroke-width="1.5" rx="2"/>
+        <text x="60" y="-4" text-anchor="middle" class="tiny">K=8 columns</text>
+        <text x="-12" y="32" text-anchor="middle" class="dim-label" transform="rotate(-90,-12,32)">N=8</text>
+
+        <!-- Thread scatter in B -->
+        <rect x="0" y="0" width="30" height="8" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="15" y="7" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T0</text>
+        <rect x="60" y="0" width="30" height="8" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="75" y="7" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T1</text>
+        <rect x="0" y="16" width="30" height="8" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="15" y="23" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T4</text>
+        <rect x="0" y="32" width="30" height="8" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="15" y="39" text-anchor="middle" class="tiny" fill="white" font-weight="bold">T8</text>
+      </g>
+
+      <!-- Redundancy explanation -->
+      <g transform="translate(160, 30)">
+        <rect x="0" y="0" width="340" height="115" fill="#FADBD8" stroke="#C0392B" stroke-width="1" rx="4"/>
+        <text x="170" y="18" text-anchor="middle" class="small bold" fill="#C0392B">No Cooperative Loading = Redundant Traffic</text>
+        <text x="10" y="38" class="code">Each thread independently loads its own</text>
+        <text x="10" y="52" class="code">fragment from global memory.</text>
+        <text x="10" y="70" class="code">Same A elements needed by multiple MMA</text>
+        <text x="10" y="84" class="code">iterations are re-fetched from global</text>
+        <text x="10" y="98" class="code">memory every time (no caching in smem).</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Tensor Core Compute                               -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="680" x2="1360" y2="680" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="708" class="section-title">3. Tensor Core Compute: SM80 16x8x8 MMA</text>
+
+  <g transform="translate(60, 730)">
+    <!-- MMA atom diagram -->
+    <g transform="translate(0, 0)">
+      <!-- A fragment -->
+      <rect x="0" y="30" width="60" height="96" fill="#CADFF5" stroke="#4A90D9" stroke-width="2" rx="3"/>
+      <text x="30" y="20" text-anchor="middle" class="subtitle" fill="#4A90D9">A frag</text>
+      <text x="30" y="70" text-anchor="middle" class="small" fill="#333">16 x 8</text>
+      <text x="30" y="85" text-anchor="middle" class="tiny" fill="#4A90D9">TF32</text>
+
+      <text x="75" y="78" text-anchor="middle" font-size="18" fill="#333">x</text>
+
+      <!-- B fragment -->
+      <rect x="90" y="45" width="96" height="40" fill="#B8E6CC" stroke="#27AE60" stroke-width="2" rx="3"/>
+      <text x="138" y="35" text-anchor="middle" class="subtitle" fill="#27AE60">B frag</text>
+      <text x="138" y="68" text-anchor="middle" class="small" fill="#333">8 x 8</text>
+      <text x="138" y="80" text-anchor="middle" class="tiny" fill="#27AE60">TF32</text>
+
+      <text x="200" y="78" text-anchor="middle" font-size="18" fill="#333">=</text>
+
+      <!-- C accumulator -->
+      <rect x="215" y="30" width="96" height="96" fill="#FDEBD0" stroke="#E67E22" stroke-width="2" rx="3"/>
+      <text x="263" y="20" text-anchor="middle" class="subtitle" fill="#E67E22">C accum</text>
+      <text x="263" y="70" text-anchor="middle" class="small" fill="#333">16 x 8</text>
+      <text x="263" y="85" text-anchor="middle" class="tiny" fill="#E67E22">F32</text>
+    </g>
+
+    <!-- Stats -->
+    <g transform="translate(350, 0)">
+      <rect x="0" y="0" width="320" height="140" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="160" y="20" text-anchor="middle" class="subtitle">Compute Summary Per Block Tile</text>
+      <line x1="10" y1="28" x2="310" y2="28" stroke="#EEE"/>
+      <text x="15" y="46" class="code">Per MMA atom: 16*8*8 = 1024 multiply-adds</text>
+      <text x="15" y="62" class="code">  32 threads per atom: 32 FMAs/thread</text>
+      <line x1="15" y1="70" x2="305" y2="70" stroke="#EEE"/>
+      <text x="15" y="86" class="code">Tiled 2x2: 4 atoms per tiled_mma step</text>
+      <text x="15" y="102" class="code">gemm(): 4M * 8N * 1K = 32 atoms per k-tile</text>
+      <text x="15" y="118" class="code bold" fill="#E67E22">Total: 32 * 1024 = 32,768 FMAs/k-tile</text>
+      <text x="15" y="134" class="code bold" fill="#E74C3C">Over K: 32,768 * K/8 FMAs per block</text>
+    </g>
+
+    <!-- Tiling visualization -->
+    <g transform="translate(720, 0)">
+      <text x="140" y="12" text-anchor="middle" class="subtitle">Tiled 2x2: 4 Warps Cover 32x16</text>
+      <rect x="0" y="20" width="140" height="120" class="c-light" stroke="#E67E22" stroke-width="1.5" rx="2"/>
+      <!-- 2x2 warp grid -->
+      <rect x="0" y="20" width="70" height="60" fill="#3498DB" opacity="0.3" stroke="#333" stroke-width="0.5"/>
+      <text x="35" y="55" text-anchor="middle" class="small" fill="#333">W0: 16x8</text>
+      <rect x="70" y="20" width="70" height="60" fill="#27AE60" opacity="0.3" stroke="#333" stroke-width="0.5"/>
+      <text x="105" y="55" text-anchor="middle" class="small" fill="#333">W1: 16x8</text>
+      <rect x="0" y="80" width="70" height="60" fill="#E67E22" opacity="0.3" stroke="#333" stroke-width="0.5"/>
+      <text x="35" y="115" text-anchor="middle" class="small" fill="#333">W2: 16x8</text>
+      <rect x="70" y="80" width="70" height="60" fill="#8E44AD" opacity="0.3" stroke="#333" stroke-width="0.5"/>
+      <text x="105" y="115" text-anchor="middle" class="small" fill="#333">W3: 16x8</text>
+      <text x="70" y="155" text-anchor="middle" class="dim-label">32 rows x 16 cols per step</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: Why This Is Slow                                  -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="900" x2="1360" y2="900" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="928" class="section-title">4. Why This Is Slow: No Shared Memory = No Data Reuse</text>
+
+  <g transform="translate(60, 950)">
+    <!-- Left: problem visualization -->
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="600" height="280" fill="white" stroke="#C0392B" stroke-width="2" rx="6"/>
+      <text x="300" y="22" text-anchor="middle" class="subtitle" fill="#C0392B">Redundant Global Memory Traffic (cute_simple)</text>
+      <line x1="10" y1="30" x2="590" y2="30" stroke="#FADBD8"/>
+
+      <text x="15" y="50" class="code">Each A element is needed by multiple MMA iterations (across N):</text>
+      <text x="15" y="66" class="code">  A[row, k] is needed for ALL 8 N-iterations of gemm()</text>
+      <text x="15" y="82" class="code" fill="#C0392B">  But it gets re-loaded from DRAM each time!</text>
+
+      <text x="15" y="106" class="code">Each B element is needed by multiple MMA iterations (across M):</text>
+      <text x="15" y="122" class="code">  B[n, k] is needed for ALL 4 M-iterations of gemm()</text>
+      <text x="15" y="138" class="code" fill="#C0392B">  Also re-loaded from DRAM each time!</text>
+
+      <line x1="10" y1="152" x2="590" y2="152" stroke="#FADBD8"/>
+      <text x="15" y="172" class="subtitle" fill="#C0392B">Global Memory Traffic per k-tile (BLK_K=8):</text>
+      <text x="15" y="190" class="code">  A loads: 4M * 1K * (16*8) = 4 * 128 = 512 elements per MMA-M step</text>
+      <text x="15" y="206" class="code">         x 8N steps = 4,096 A elements from global</text>
+      <text x="15" y="222" class="code">  B loads: 8N * 1K * (8*8) = 8 * 64 = 512 per MMA-N step</text>
+      <text x="15" y="238" class="code">         x 4M steps = 2,048 B elements from global</text>
+      <text x="15" y="260" class="code bold" fill="#C0392B">  Total: ~6,144 global loads per k-tile (BLK_K=8)</text>
+    </g>
+
+    <!-- Right: comparison with smem version -->
+    <g transform="translate(640, 0)">
+      <rect x="0" y="0" width="650" height="280" fill="white" stroke="#27AE60" stroke-width="2" rx="6"/>
+      <text x="325" y="22" text-anchor="middle" class="subtitle" fill="#27AE60">With Shared Memory (cute_smem): Massive Data Reuse</text>
+      <line x1="10" y1="30" x2="640" y2="30" stroke="#D5F5E3"/>
+
+      <text x="15" y="50" class="code">Cooperative load: all 128 threads load the tile ONCE</text>
+      <text x="15" y="66" class="code" fill="#27AE60">  A tile: 128 * BLK_K = 128 * 8 = 1,024 elements</text>
+      <text x="15" y="82" class="code" fill="#27AE60">  B tile: 128 * BLK_K = 128 * 8 = 1,024 elements</text>
+      <text x="15" y="98" class="code" fill="#27AE60">  Total: 2,048 global loads per k-tile</text>
+
+      <line x1="10" y1="112" x2="640" y2="112" stroke="#D5F5E3"/>
+      <text x="15" y="132" class="subtitle" fill="#27AE60">Reuse Factor:</text>
+      <text x="15" y="150" class="code">Each A element loaded once, used in 8 N-iterations</text>
+      <text x="15" y="166" class="code">Each B element loaded once, used in 4 M-iterations</text>
+
+      <line x1="10" y1="180" x2="640" y2="180" stroke="#D5F5E3"/>
+      <text x="15" y="200" class="subtitle">Traffic Comparison per k-tile:</text>
+
+      <rect x="15" y="210" width="300" height="26" fill="#FADBD8" stroke="#C0392B" rx="4"/>
+      <text x="165" y="228" text-anchor="middle" class="small bold" fill="#C0392B">cute_simple: ~6,144 global loads</text>
+
+      <rect x="325" y="210" width="300" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+      <text x="475" y="228" text-anchor="middle" class="small bold" fill="#1E8449">cute_smem: 2,048 global loads</text>
+
+      <text x="15" y="260" class="code bold" fill="#27AE60">smem version: ~3x less global traffic (and much better coalescing)</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: Data Flow Summary                                 -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1270" x2="1360" y2="1270" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1298" class="section-title">5. Data Flow Summary</text>
+
+  <g transform="translate(60, 1320)">
+    <!-- Pipeline stages -->
+    <!-- Stage 1: Global Memory -->
+    <rect x="0" y="0" width="260" height="100" fill="#EBF5FB" stroke="#4A90D9" stroke-width="2" rx="8"/>
+    <text x="130" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">Global Memory (DRAM)</text>
+    <text x="10" y="42" class="code">A: (M, K) row-major</text>
+    <text x="10" y="58" class="code">B: (K, N) row-major, view (N, K)</text>
+    <text x="10" y="78" class="code" fill="#C0392B">MMA partitions loaded directly</text>
+    <text x="10" y="92" class="code" fill="#C0392B">Poor coalescing expected</text>
+
+    <!-- Arrow -->
+    <path d="M270,50 L320,50" class="arrow-bold"/>
+    <text x="295" y="42" text-anchor="middle" class="tiny" fill="#555">copy()</text>
+
+    <!-- Stage 2: Registers (fragments) -->
+    <rect x="330" y="0" width="260" height="100" fill="#FDEBD0" stroke="#E67E22" stroke-width="2" rx="8"/>
+    <text x="460" y="22" text-anchor="middle" class="subtitle" fill="#E67E22">Register Fragments</text>
+    <text x="340" y="42" class="code">tCrA: A fragment for this thread</text>
+    <text x="340" y="58" class="code">tCrB: B fragment for this thread</text>
+    <text x="340" y="78" class="code">tCrC: accumulator (stays in regs)</text>
+    <text x="340" y="92" class="code" fill="#E67E22">Reloaded every k-step!</text>
+
+    <!-- Arrow -->
+    <path d="M600,50 L650,50" class="arrow-bold"/>
+    <text x="625" y="42" text-anchor="middle" class="tiny" fill="#555">gemm()</text>
+
+    <!-- Stage 3: Tensor Core -->
+    <rect x="660" y="0" width="240" height="100" fill="#FADBD8" stroke="#E74C3C" stroke-width="2" rx="8"/>
+    <text x="780" y="22" text-anchor="middle" class="subtitle" fill="#E74C3C">Tensor Core (mma.sync)</text>
+    <text x="670" y="42" class="code">SM80 16x8x8 TF32</text>
+    <text x="670" y="58" class="code">4 atoms per tiled step</text>
+    <text x="670" y="78" class="code">32 steps over 128x128</text>
+    <text x="670" y="92" class="code bold" fill="#E74C3C">32,768 FMAs/k-tile</text>
+
+    <!-- Arrow down -->
+    <path d="M780,100 L780,130" class="arrow-bold"/>
+
+    <!-- Stage 4: Store back -->
+    <rect x="660" y="135" width="240" height="55" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
+    <text x="780" y="157" text-anchor="middle" class="subtitle" fill="#27AE60">Store C to Global</text>
+    <text x="670" y="175" class="code">copy(tCrC, tCgC) -- MMA partition</text>
+
+    <!-- Loop arrow -->
+    <path d="M130,100 L130,130 L780,130" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+    <text x="450" y="126" text-anchor="middle" class="small" fill="#888">repeat K/BLK_K = K/8 times (outer k-loop)</text>
+
+    <!-- Key insight box -->
+    <rect x="0" y="140" width="580" height="90" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+    <text x="290" y="162" text-anchor="middle" class="subtitle">Key Insight: Simplest CuTe Pipeline (Baseline)</text>
+    <text x="15" y="182" class="code">Pipeline: Global --(copy)--> Registers --(mma.sync)--> Registers --(copy)--> Global</text>
+    <text x="15" y="198" class="code" fill="#C0392B">No shared memory means no cooperative loading, no data reuse</text>
+    <text x="15" y="214" class="code" fill="#1E8449">Value: shows the MMA partition pattern that all CuTe kernels build upon</text>
+
+    <!-- NO SMEM callout -->
+    <g transform="translate(0, 250)">
+      <rect width="1280" height="45" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="640" y="18" text-anchor="middle" class="small bold" fill="#7D6608">No __syncthreads() needed: no shared memory = no synchronization between threads.</text>
+      <text x="640" y="34" text-anchor="middle" class="small" fill="#7D6608">Each thread operates independently: load its own fragments from global, compute with tensor cores, store results.</text>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1780" text-anchor="middle" class="tiny" fill="#AAA">matmul_cute_simple&lt;128, 128, 8&gt; -- CuTe MMA (Global to Registers, No Shared Memory)</text>
+</svg>

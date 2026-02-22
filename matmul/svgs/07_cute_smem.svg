@@ -1,0 +1,616 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 2200" font-family="'Courier New', monospace">
+  <style>
+    .title { font-size: 22px; font-weight: bold; fill: #222; }
+    .section-title { font-size: 17px; font-weight: bold; fill: #333; }
+    .subtitle { font-size: 13px; font-weight: bold; fill: #555; }
+    .label { font-size: 11px; fill: #333; }
+    .small { font-size: 10px; fill: #555; }
+    .tiny { font-size: 9px; fill: #666; }
+    .code { font-size: 10px; fill: #333; font-family: monospace; }
+    .bold { font-weight: bold; }
+    .a-fill { fill: #4A90D9; }
+    .a-light { fill: #CADFF5; }
+    .b-fill { fill: #27AE60; }
+    .b-light { fill: #B8E6CC; }
+    .c-fill { fill: #E67E22; }
+    .c-light { fill: #FDEBD0; }
+    .warp-fill { fill: #F1C40F; opacity: 0.6; }
+    .coalesced { fill: #8E44AD; }
+    .coalesced-light { fill: #D7BDE2; }
+    .strided { fill: #C0392B; }
+    .reg-fill { fill: #ECF0F1; }
+    .outline { fill: none; stroke: #333; stroke-width: 1; }
+    .outline-bold { fill: none; stroke: #333; stroke-width: 2; }
+    .arrow { fill: none; stroke: #555; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .arrow-bold { fill: none; stroke: #333; stroke-width: 2; marker-end: url(#arrowhead); }
+    .dashed { stroke-dasharray: 4,3; }
+    .thread-grid { fill: #F9F9F9; stroke: #CCC; stroke-width: 0.5; }
+    .broadcast { fill: #2ECC71; opacity: 0.3; }
+    .bank-conflict { fill: #E74C3C; opacity: 0.3; }
+    .dim-label { font-size: 11px; fill: #888; font-style: italic; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C0392B"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8E44AD"/>
+    </marker>
+    <linearGradient id="fma-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F39C12;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#E74C3C;stop-opacity:0.8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="2200" fill="#FAFAFA" rx="8"/>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 1: Block Tile & CuTe Abstractions Overview           -->
+  <!-- ============================================================ -->
+  <text x="700" y="35" text-anchor="middle" class="title">CuTe SMEM Kernel: Memory Access &amp; Compute Patterns</text>
+  <text x="700" y="55" text-anchor="middle" class="small">BLK_M=128, BLK_N=128, BLK_K=32, MMA: SM80_16x8x8 tiled 2x2, 128 threads, cp_async global->shared->registers->MMA</text>
+
+  <line x1="40" y1="70" x2="1360" y2="70" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="95" class="section-title">1. Block Tile &amp; CuTe Abstractions Overview</text>
+
+  <!-- Tile diagram -->
+  <g transform="translate(80, 120)">
+    <!-- A tile (128 x 32) -->
+    <text x="48" y="-5" text-anchor="middle" class="subtitle">sA [shared]</text>
+    <rect width="96" height="192" class="a-light" stroke="#4A90D9" stroke-width="2" rx="2"/>
+    <text x="-10" y="8" text-anchor="end" class="tiny">0</text>
+    <text x="-10" y="98" text-anchor="end" class="tiny">64</text>
+    <text x="-10" y="190" text-anchor="end" class="tiny">127</text>
+    <text x="48" y="210" text-anchor="middle" class="dim-label">32 cols (K)</text>
+    <text x="-25" y="96" text-anchor="middle" class="dim-label" transform="rotate(-90,-25,96)">128 rows (M)</text>
+    <line x1="0" y1="48" x2="96" y2="48" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="96" x2="96" y2="96" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="0" y1="144" x2="96" y2="144" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="24" y1="0" x2="24" y2="192" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="48" y1="0" x2="48" y2="192" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+    <line x1="72" y1="0" x2="72" y2="192" stroke="#4A90D9" stroke-width="0.5" opacity="0.4"/>
+  </g>
+
+  <text x="225" y="230" text-anchor="middle" font-size="28" fill="#333">x</text>
+
+  <!-- B tile (128 x 32) -->
+  <g transform="translate(260, 180)">
+    <text x="96" y="-5" text-anchor="middle" class="subtitle">sB [shared]</text>
+    <rect width="192" height="48" class="b-light" stroke="#27AE60" stroke-width="2" rx="2"/>
+    <text x="2" y="65" text-anchor="start" class="tiny">0</text>
+    <text x="94" y="65" text-anchor="middle" class="tiny">64</text>
+    <text x="186" y="65" text-anchor="end" class="tiny">127</text>
+    <text x="96" y="78" text-anchor="middle" class="dim-label">128 cols (N)</text>
+    <text x="-18" y="24" text-anchor="middle" class="dim-label" transform="rotate(-90,-18,24)">32 (K)</text>
+    <line x1="48" y1="0" x2="48" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <line x1="96" y1="0" x2="96" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+    <line x1="144" y1="0" x2="144" y2="48" stroke="#27AE60" stroke-width="0.5" opacity="0.4"/>
+  </g>
+
+  <text x="500" y="218" text-anchor="middle" font-size="28" fill="#333">=</text>
+
+  <!-- C tile (128 x 128) -->
+  <g transform="translate(530, 120)">
+    <text x="96" y="-5" text-anchor="middle" class="subtitle">C [128x128 output]</text>
+    <rect width="192" height="192" class="c-light" stroke="#E67E22" stroke-width="2" rx="2"/>
+    <line x1="48" y1="0" x2="48" y2="192" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="96" y1="0" x2="96" y2="192" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="144" y1="0" x2="144" y2="192" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="0" y1="48" x2="192" y2="48" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="0" y1="96" x2="192" y2="96" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <line x1="0" y1="144" x2="192" y2="144" stroke="#E67E22" stroke-width="0.3" opacity="0.5"/>
+    <text x="96" y="206" text-anchor="middle" class="small">128 threads, 4 warps</text>
+  </g>
+
+  <!-- Two-phase pipeline description -->
+  <g transform="translate(760, 120)">
+    <text x="0" y="0" class="subtitle">Two-Phase Pipeline per k-tile:</text>
+
+    <!-- Phase 1 -->
+    <rect x="0" y="15" width="560" height="55" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1.5" rx="4"/>
+    <text x="10" y="33" class="small bold" fill="#4A90D9">Phase 1: cp_async Global -> Shared (tiled_copy)</text>
+    <text x="10" y="48" class="code">copy(copy_a, tAgA(_, _, _, k), tAsA)  -- 128-bit async, bypasses registers</text>
+    <text x="10" y="62" class="code">copy(copy_b, tBgB(_, _, _, k), tBsB)  -- cooperative: all 128 threads load tile</text>
+
+    <!-- Phase 2 -->
+    <rect x="0" y="80" width="560" height="55" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" rx="4"/>
+    <text x="10" y="98" class="small bold" fill="#E67E22">Phase 2: copy + gemm Shared -> Registers -> MMA</text>
+    <text x="10" y="113" class="code">copy(tCsA, tCrA)  -- smem to register fragments (MMA partition layout)</text>
+    <text x="10" y="128" class="code">gemm(tiled_mma, tCrA, tCrB, tCrC)  -- tensor core mma.sync</text>
+
+    <!-- CuTe object hierarchy -->
+    <g transform="translate(0, 150)">
+      <text x="0" y="0" class="subtitle">CuTe Object Hierarchy:</text>
+      <text x="0" y="18" class="code">mA/mB/mC: full global tensor (M,K) / (N,K) / (M,N)</text>
+      <text x="0" y="32" class="code">gA/gB/gC: block tile via local_tile (BLK_M, BLK_K, k) / ...</text>
+      <text x="0" y="46" class="code">tAgA/tAsA: copy partitions (global src -> shared dst)</text>
+      <text x="0" y="60" class="code">tCsA/tCrA: MMA partitions (shared src -> register frag)</text>
+      <text x="0" y="74" class="code">tCrC/tCgC: accumulator in registers -> global output</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 2: cp_async Global -> Shared                         -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="380" x2="1360" y2="380" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="408" class="section-title">2. cp_async Global -> Shared Memory (Tiled Copy, BLK_K=32)</text>
+
+  <!-- CopyA details -->
+  <g transform="translate(60, 430)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#4A90D9">CopyA: Loading A Tile (128x32) into Shared Memory</text>
+    <text x="280" y="16" text-anchor="middle" class="small">Copy Atom: SM80_CP_ASYNC_CACHEGLOBAL&lt;uint128_t&gt; -- 128-bit async, bypasses register file</text>
+
+    <g transform="translate(0, 32)">
+      <!-- Thread layout diagram -->
+      <rect x="0" y="0" width="320" height="230" fill="white" stroke="#4A90D9" stroke-width="1" rx="4"/>
+      <text x="160" y="18" text-anchor="middle" class="small bold" fill="#4A90D9">Thread Layout: Shape&lt;_16, _8&gt; Stride&lt;_8, _1&gt;</text>
+      <text x="10" y="36" class="code">16 M-threads x 8 K-threads = 128 threads</text>
+      <text x="10" y="52" class="code">Value layout: Shape&lt;_1, _4&gt;</text>
+      <text x="10" y="68" class="code">  Each thread loads 1x4 = 4 floats along K</text>
+      <text x="10" y="84" class="code">  4 floats * 4 bytes = 16 bytes = 128 bits</text>
+      <line x1="10" y1="92" x2="310" y2="92" stroke="#EEE"/>
+
+      <text x="10" y="110" class="code bold">Per-warp coverage (32 threads):</text>
+      <text x="10" y="126" class="code">  Stride&lt;_8,_1&gt; means tid%8 = K-thread</text>
+      <text x="10" y="140" class="code">  tid/8 = M-thread (within warp: 4 rows)</text>
+      <text x="10" y="158" class="code">  Each row: 8 threads x 4 K-floats = 32 K</text>
+      <text x="10" y="174" class="code" fill="#1E8449">  Row 0: T0-T7 load A[r, 0:32] = 32 floats</text>
+      <text x="10" y="190" class="code" fill="#1E8449">  = 128 bytes, perfectly coalesced!</text>
+      <text x="10" y="210" class="code">  4 rows per warp: 4 cache lines (512B)</text>
+    </g>
+
+    <!-- Visual: warp 0 A tile loading -->
+    <g transform="translate(350, 32)">
+      <text x="140" y="0" text-anchor="middle" class="subtitle" fill="#4A90D9">Warp 0 Loading A (rows 0-3, K=0:31)</text>
+
+      <!-- A tile fragment for warp 0: 4 rows x 32 K cols -->
+      <g transform="translate(0, 15)">
+        <!-- K column headers -->
+        <text x="8" y="-4" text-anchor="middle" class="tiny">k0-3</text>
+        <text x="40" y="-4" text-anchor="middle" class="tiny">k4-7</text>
+        <text x="72" y="-4" text-anchor="middle" class="tiny">k8-11</text>
+        <text x="104" y="-4" text-anchor="middle" class="tiny">k12-15</text>
+        <text x="142" y="-4" text-anchor="middle" class="tiny">k16-19</text>
+        <text x="178" y="-4" text-anchor="middle" class="tiny">k20-23</text>
+        <text x="214" y="-4" text-anchor="middle" class="tiny">k24-27</text>
+        <text x="250" y="-4" text-anchor="middle" class="tiny">k28-31</text>
+
+        <!-- Row 0: T0-T7 (blue shades) -->
+        <rect x="0" y="0" width="35" height="24" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="35" y="0" width="35" height="24" fill="#3498DB" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="70" y="0" width="35" height="24" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="105" y="0" width="35" height="24" fill="#3498DB" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="140" y="0" width="40" height="24" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="180" y="0" width="38" height="24" fill="#3498DB" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="218" y="0" width="35" height="24" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="253" y="0" width="35" height="24" fill="#3498DB" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <text x="4" y="16" class="tiny" fill="white" font-weight="bold">T0</text>
+        <text x="39" y="16" class="tiny" fill="white" font-weight="bold">T1</text>
+        <text x="74" y="16" class="tiny" fill="white" font-weight="bold">T2</text>
+        <text x="109" y="16" class="tiny" fill="white" font-weight="bold">T3</text>
+        <text x="144" y="16" class="tiny" fill="white" font-weight="bold">T4</text>
+        <text x="184" y="16" class="tiny" fill="white" font-weight="bold">T5</text>
+        <text x="222" y="16" class="tiny" fill="white" font-weight="bold">T6</text>
+        <text x="257" y="16" class="tiny" fill="white" font-weight="bold">T7</text>
+        <text x="-8" y="16" text-anchor="end" class="tiny">r0</text>
+
+        <!-- Row 1: T8-T15 (green) -->
+        <rect x="0" y="24" width="35" height="24" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="35" y="24" width="35" height="24" fill="#27AE60" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="70" y="24" width="35" height="24" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="105" y="24" width="35" height="24" fill="#27AE60" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="140" y="24" width="40" height="24" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="180" y="24" width="38" height="24" fill="#27AE60" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="218" y="24" width="35" height="24" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="253" y="24" width="35" height="24" fill="#27AE60" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <text x="4" y="40" class="tiny" fill="white" font-weight="bold">T8</text>
+        <text x="39" y="40" class="tiny" fill="white" font-weight="bold">T9</text>
+        <text x="257" y="40" class="tiny" fill="white" font-weight="bold">T15</text>
+        <text x="-8" y="40" text-anchor="end" class="tiny">r1</text>
+
+        <!-- Row 2: T16-T23 (orange) -->
+        <rect x="0" y="48" width="35" height="24" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="35" y="48" width="35" height="24" fill="#E67E22" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="70" y="48" width="35" height="24" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="105" y="48" width="35" height="24" fill="#E67E22" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="140" y="48" width="40" height="24" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="180" y="48" width="38" height="24" fill="#E67E22" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="218" y="48" width="35" height="24" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="253" y="48" width="35" height="24" fill="#E67E22" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <text x="4" y="64" class="tiny" fill="white" font-weight="bold">T16</text>
+        <text x="257" y="64" class="tiny" fill="white" font-weight="bold">T23</text>
+        <text x="-8" y="64" text-anchor="end" class="tiny">r2</text>
+
+        <!-- Row 3: T24-T31 (purple) -->
+        <rect x="0" y="72" width="35" height="24" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="35" y="72" width="35" height="24" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="70" y="72" width="35" height="24" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="105" y="72" width="35" height="24" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="140" y="72" width="40" height="24" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="180" y="72" width="38" height="24" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="218" y="72" width="35" height="24" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="253" y="72" width="35" height="24" fill="#8E44AD" opacity="0.6" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <text x="4" y="88" class="tiny" fill="white" font-weight="bold">T24</text>
+        <text x="257" y="88" class="tiny" fill="white" font-weight="bold">T31</text>
+        <text x="-8" y="88" text-anchor="end" class="tiny">r3</text>
+
+        <!-- Coalescing verdict -->
+        <rect x="0" y="108" width="288" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+        <text x="144" y="126" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">128B coalesced per row (8 threads x 16B)</text>
+      </g>
+
+      <!-- Memory address explanation -->
+      <g transform="translate(0, 160)">
+        <text x="0" y="0" class="code">Row 0: T0-T7 each load 128 bits (4 TF32)</text>
+        <text x="0" y="14" class="code">  Addrs: base, base+16B, ..., base+112B</text>
+        <text x="0" y="28" class="code" fill="#1E8449">  = 1 x 128B transaction (perfect coalescing)</text>
+        <text x="0" y="46" class="code">4 warps cover 16 rows each = 128 rows total</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- CopyB details -->
+  <g transform="translate(60, 720)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#27AE60">CopyB: Loading B Tile (128x32) into Shared Memory</text>
+    <text x="280" y="16" text-anchor="middle" class="small">Thread layout Shape&lt;_32, _4&gt;, Value Shape&lt;_4, _1&gt; -- 32 N-threads x 4 K-threads</text>
+
+    <g transform="translate(0, 32)">
+      <rect x="0" y="0" width="320" height="175" fill="white" stroke="#27AE60" stroke-width="1" rx="4"/>
+      <text x="160" y="18" text-anchor="middle" class="small bold" fill="#27AE60">Thread Layout: Shape&lt;_32, _4&gt;</text>
+      <text x="10" y="36" class="code">32 N-threads x 4 K-threads = 128 threads</text>
+      <text x="10" y="52" class="code">Value: Shape&lt;_4, _1&gt; = 4 floats along N</text>
+      <text x="10" y="68" class="code">  4 floats x 4 bytes = 16 bytes = 128 bits</text>
+      <line x1="10" y1="76" x2="310" y2="76" stroke="#EEE"/>
+      <text x="10" y="94" class="code bold">Per-warp (32 threads, K-major order):</text>
+      <text x="10" y="110" class="code">  K=0: T0,T4,T8,...,T28 (8 threads)</text>
+      <text x="10" y="126" class="code">  Each loads 4 N-consecutive floats</text>
+      <text x="10" y="142" class="code" fill="#1E8449">  8 threads x 4 floats = 32 N-floats coalesced</text>
+      <text x="10" y="158" class="code">  4 K-levels per warp (K=0,1,2,3)</text>
+    </g>
+
+    <!-- Visual: warp 0 B tile loading -->
+    <g transform="translate(350, 32)">
+      <text x="160" y="0" text-anchor="middle" class="subtitle" fill="#27AE60">Warp 0 Loading B (N-dim, K=0:3)</text>
+
+      <g transform="translate(0, 15)">
+        <!-- Column headers - N dimension -->
+        <text x="16" y="-4" text-anchor="middle" class="tiny">n0-3</text>
+        <text x="48" y="-4" text-anchor="middle" class="tiny">n4-7</text>
+        <text x="80" y="-4" text-anchor="middle" class="tiny">n8-11</text>
+        <text x="160" y="-4" text-anchor="middle" class="tiny">...</text>
+        <text x="256" y="-4" text-anchor="middle" class="tiny">n28-31</text>
+
+        <!-- K=0 row: T0, T4, T8, ..., T28 -->
+        <rect x="0" y="0" width="32" height="24" fill="#3498DB" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="32" y="0" width="32" height="24" fill="#27AE60" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="64" y="0" width="32" height="24" fill="#E67E22" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="96" y="0" width="32" height="24" fill="#8E44AD" opacity="0.7" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="128" y="0" width="32" height="24" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="160" y="0" width="32" height="24" fill="#27AE60" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="192" y="0" width="32" height="24" fill="#E67E22" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="224" y="0" width="32" height="24" fill="#8E44AD" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <text x="4" y="16" class="tiny" fill="white" font-weight="bold">T0</text>
+        <text x="36" y="16" class="tiny" fill="white" font-weight="bold">T4</text>
+        <text x="68" y="16" class="tiny" fill="white" font-weight="bold">T8</text>
+        <text x="100" y="16" class="tiny" fill="white" font-weight="bold">T12</text>
+        <text x="132" y="16" class="tiny" fill="white" font-weight="bold">T16</text>
+        <text x="164" y="16" class="tiny" fill="white" font-weight="bold">T20</text>
+        <text x="196" y="16" class="tiny" fill="white" font-weight="bold">T24</text>
+        <text x="228" y="16" class="tiny" fill="white" font-weight="bold">T28</text>
+        <text x="-8" y="16" text-anchor="end" class="tiny">K=0</text>
+
+        <!-- K=1 row -->
+        <rect x="0" y="24" width="32" height="24" fill="#3498DB" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="32" y="24" width="32" height="24" fill="#27AE60" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="64" y="24" width="32" height="24" fill="#E67E22" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="96" y="24" width="32" height="24" fill="#8E44AD" opacity="0.5" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="128" y="24" width="32" height="24" fill="#3498DB" opacity="0.3" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="160" y="24" width="32" height="24" fill="#27AE60" opacity="0.3" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="192" y="24" width="32" height="24" fill="#E67E22" opacity="0.3" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <rect x="224" y="24" width="32" height="24" fill="#8E44AD" opacity="0.3" stroke="#2C3E50" stroke-width="0.8" rx="1"/>
+        <text x="4" y="40" class="tiny" fill="white" font-weight="bold">T1</text>
+        <text x="36" y="40" class="tiny" fill="white" font-weight="bold">T5</text>
+        <text x="-8" y="40" text-anchor="end" class="tiny">K=1</text>
+
+        <!-- K=2 row -->
+        <rect x="0" y="48" width="256" height="24" fill="#CCC" opacity="0.3" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="128" y="64" text-anchor="middle" class="tiny" fill="#555">T2, T6, T10, ..., T30</text>
+        <text x="-8" y="64" text-anchor="end" class="tiny">K=2</text>
+
+        <!-- K=3 row -->
+        <rect x="0" y="72" width="256" height="24" fill="#CCC" opacity="0.3" stroke="#2C3E50" stroke-width="0.5" rx="1"/>
+        <text x="128" y="88" text-anchor="middle" class="tiny" fill="#555">T3, T7, T11, ..., T31</text>
+        <text x="-8" y="88" text-anchor="end" class="tiny">K=3</text>
+
+        <!-- Coalescing verdict -->
+        <rect x="0" y="108" width="288" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
+        <text x="144" y="126" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">128B coalesced per K-row (8 thr x 16B each)</text>
+      </g>
+
+      <text x="0" y="162" class="code">4 warps cover: 32 N x 4 K each, but need</text>
+      <text x="0" y="176" class="code">128 N x 32 K total. Each warp iterates.</text>
+    </g>
+  </g>
+
+  <!-- cp_async KEY box -->
+  <g transform="translate(60, 940)">
+    <rect x="0" y="0" width="600" height="30" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="4"/>
+    <text x="300" y="20" text-anchor="middle" class="small bold" fill="#7D6608">KEY: cp_async bypasses register file (DRAM -> L2 -> SMEM directly). Frees registers for compute.</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 3: Padded Shared Memory                              -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="990" x2="1360" y2="990" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1018" class="section-title">3. Padded Shared Memory Layout (Bank Conflict Avoidance)</text>
+
+  <!-- sA layout -->
+  <g transform="translate(60, 1040)">
+    <text x="260" y="0" text-anchor="middle" class="subtitle" fill="#4A90D9">sA: (128, 32) with stride (36, 1) -- PAD = 4</text>
+
+    <g transform="translate(0, 20)">
+      <!-- sA visualization: show first few rows -->
+      <rect x="0" y="0" width="360" height="120" fill="white" stroke="#4A90D9" stroke-width="1" rx="4"/>
+
+      <!-- Header -->
+      <text x="8" y="16" class="tiny" fill="#4A90D9" font-weight="bold">Physical SMEM layout (36 floats per row):</text>
+
+      <!-- Row 0 -->
+      <rect x="8" y="22" width="192" height="18" fill="#CADFF5" stroke="#4A90D9" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="22" width="24" height="18" fill="#ECF0F1" stroke="#CCC" stroke-width="0.5" rx="1"/>
+      <text x="12" y="35" class="tiny" fill="#333">Row 0: K=0..31 (32 floats)</text>
+      <text x="206" y="35" class="tiny" fill="#999">pad</text>
+
+      <!-- Row 1 -->
+      <rect x="8" y="42" width="192" height="18" fill="#CADFF5" opacity="0.7" stroke="#4A90D9" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="42" width="24" height="18" fill="#ECF0F1" stroke="#CCC" stroke-width="0.5" rx="1"/>
+      <text x="12" y="55" class="tiny" fill="#333">Row 1: K=0..31 (starts at offset 36)</text>
+      <text x="206" y="55" class="tiny" fill="#999">pad</text>
+
+      <!-- Row 2 -->
+      <rect x="8" y="62" width="192" height="18" fill="#CADFF5" opacity="0.5" stroke="#4A90D9" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="62" width="24" height="18" fill="#ECF0F1" stroke="#CCC" stroke-width="0.5" rx="1"/>
+      <text x="12" y="75" class="tiny" fill="#333">Row 2: K=0..31 (starts at offset 72)</text>
+      <text x="206" y="75" class="tiny" fill="#999">pad</text>
+
+      <text x="100" y="94" text-anchor="middle" class="tiny" fill="#555">...</text>
+
+      <!-- Bank analysis -->
+      <text x="8" y="112" class="code" fill="#4A90D9">Bank(row r, col k) = (r*36 + k) % 32</text>
+    </g>
+
+    <!-- Bank rotation explanation -->
+    <g transform="translate(0, 156)">
+      <text x="0" y="0" class="subtitle">Bank Rotation Effect (PAD=4):</text>
+      <text x="0" y="18" class="code">Row 0, K=0: bank = (0*36 + 0) % 32 = 0</text>
+      <text x="0" y="32" class="code">Row 1, K=0: bank = (1*36 + 0) % 32 = 4</text>
+      <text x="0" y="46" class="code">Row 2, K=0: bank = (2*36 + 0) % 32 = 8</text>
+      <text x="0" y="60" class="code">Row 3, K=0: bank = (3*36 + 0) % 32 = 12</text>
+      <text x="0" y="78" class="code" fill="#1E8449">Each row shifts by 4 banks -- avoids conflicts</text>
+      <text x="0" y="92" class="code" fill="#1E8449">when threads in the same warp read same K column</text>
+    </g>
+  </g>
+
+  <!-- sB layout -->
+  <g transform="translate(700, 1040)">
+    <text x="280" y="0" text-anchor="middle" class="subtitle" fill="#27AE60">sB: (128, 32) with stride (1, 132) -- PAD = 4</text>
+
+    <g transform="translate(0, 20)">
+      <rect x="0" y="0" width="360" height="120" fill="white" stroke="#27AE60" stroke-width="1" rx="4"/>
+
+      <text x="8" y="16" class="tiny" fill="#27AE60" font-weight="bold">Physical SMEM layout (N-contiguous, K-strided by 132):</text>
+
+      <!-- K=0 column -->
+      <rect x="8" y="22" width="192" height="18" fill="#B8E6CC" stroke="#27AE60" stroke-width="0.5" rx="1"/>
+      <text x="12" y="35" class="tiny" fill="#333">K=0: N=0..127 (128 consecutive floats)</text>
+
+      <!-- K=1 column -->
+      <rect x="8" y="42" width="192" height="18" fill="#B8E6CC" opacity="0.7" stroke="#27AE60" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="42" width="24" height="18" fill="#ECF0F1" stroke="#CCC" stroke-width="0.5" rx="1"/>
+      <text x="12" y="55" class="tiny" fill="#333">K=1: N=0..127 (starts at offset 132)</text>
+      <text x="206" y="55" class="tiny" fill="#999">pad</text>
+
+      <!-- K=2 column -->
+      <rect x="8" y="62" width="192" height="18" fill="#B8E6CC" opacity="0.5" stroke="#27AE60" stroke-width="0.5" rx="1"/>
+      <rect x="200" y="62" width="24" height="18" fill="#ECF0F1" stroke="#CCC" stroke-width="0.5" rx="1"/>
+      <text x="12" y="75" class="tiny" fill="#333">K=2: N=0..127 (starts at offset 264)</text>
+      <text x="206" y="75" class="tiny" fill="#999">pad</text>
+
+      <text x="100" y="94" text-anchor="middle" class="tiny" fill="#555">...</text>
+      <text x="8" y="112" class="code" fill="#27AE60">Bank(n, k) = (n + k*132) % 32</text>
+    </g>
+
+    <!-- Bank rotation for sB -->
+    <g transform="translate(0, 156)">
+      <text x="0" y="0" class="subtitle">Bank Rotation Effect (PAD=4):</text>
+      <text x="0" y="18" class="code">K=0, N=0: bank = (0 + 0*132) % 32 = 0</text>
+      <text x="0" y="32" class="code">K=1, N=0: bank = (0 + 1*132) % 32 = 4</text>
+      <text x="0" y="46" class="code">K=2, N=0: bank = (0 + 2*132) % 32 = 8</text>
+      <text x="0" y="60" class="code">K=3, N=0: bank = (0 + 3*132) % 32 = 12</text>
+      <text x="0" y="78" class="code" fill="#1E8449">Each K-level shifts by 4 banks -- avoids conflicts</text>
+      <text x="0" y="92" class="code" fill="#1E8449">when MMA reads different K at same N offset</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 4: Shared -> Registers -> MMA Compute                -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1320" x2="1360" y2="1320" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1348" class="section-title">4. Shared -> Registers -> Tensor Core MMA Compute</text>
+
+  <g transform="translate(60, 1370)">
+    <!-- Copy from smem to registers -->
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="400" height="130" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1.5" rx="6"/>
+      <text x="200" y="22" text-anchor="middle" class="subtitle" fill="#4A90D9">Shared -> Register Fragments</text>
+      <text x="10" y="42" class="code">copy(tCsA, tCrA)  -- smem A partitioned by MMA layout</text>
+      <text x="10" y="58" class="code">copy(tCsB, tCrB)  -- smem B partitioned by MMA layout</text>
+      <line x1="10" y1="66" x2="390" y2="66" stroke="#CADFF5"/>
+      <text x="10" y="82" class="code">tCsA shape: (MMA, MMA_M, MMA_K) -- partitioned over</text>
+      <text x="10" y="96" class="code">  sA(128, 32), iterating 4M x 4K MMA-atom sub-tiles</text>
+      <text x="10" y="112" class="code">tCsB shape: (MMA, MMA_N, MMA_K) -- partitioned over</text>
+      <text x="10" y="126" class="code">  sB(128, 32), iterating 8N x 4K MMA-atom sub-tiles</text>
+    </g>
+
+    <!-- Arrow -->
+    <path d="M410,65 L450,65" class="arrow-bold"/>
+    <text x="430" y="57" text-anchor="middle" class="tiny" fill="#555">gemm()</text>
+
+    <!-- MMA compute -->
+    <g transform="translate(460, 0)">
+      <rect x="0" y="0" width="380" height="130" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" rx="6"/>
+      <text x="190" y="22" text-anchor="middle" class="subtitle" fill="#E74C3C">Tensor Core MMA Compute</text>
+      <text x="10" y="42" class="code">gemm(tiled_mma, tCrA, tCrB, tCrC)</text>
+      <line x1="10" y1="50" x2="370" y2="50" stroke="#FADBD8"/>
+      <text x="10" y="66" class="code">Iterates over MMA_M x MMA_N x MMA_K:</text>
+      <text x="10" y="82" class="code">  M: 128/(2*16) = 4 steps</text>
+      <text x="10" y="96" class="code">  N: 128/(2*8)  = 8 steps</text>
+      <text x="10" y="110" class="code">  K:  32/8      = 4 steps</text>
+      <text x="10" y="126" class="code bold" fill="#E74C3C">128 MMA atoms per k-tile (4 x 8 x 4)</text>
+    </g>
+
+    <!-- Stats box -->
+    <g transform="translate(870, 0)">
+      <rect x="0" y="0" width="440" height="130" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
+      <text x="220" y="22" text-anchor="middle" class="subtitle">Compute per k-tile (BLK_K=32)</text>
+      <line x1="10" y1="30" x2="430" y2="30" stroke="#EEE"/>
+      <text x="15" y="48" class="code">Per atom: 16 * 8 * 8 = 1,024 multiply-adds</text>
+      <text x="15" y="64" class="code">128 atoms per k-tile: 128 * 1,024 = 131,072 FMAs</text>
+      <line x1="15" y1="72" x2="425" y2="72" stroke="#EEE"/>
+      <text x="15" y="90" class="code">Global loads per k-tile: 128*32 + 128*32 = 8,192</text>
+      <text x="15" y="106" class="code bold" fill="#1E8449">Compute:load = 131,072 / 8,192 = 16:1</text>
+      <text x="15" y="124" class="code bold" fill="#E74C3C">vs cute_simple's ~6,144 loads for 32,768 FMAs = 5:1</text>
+    </g>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- SECTION 5: Data Flow & Comparison                            -->
+  <!-- ============================================================ -->
+  <line x1="40" y1="1540" x2="1360" y2="1540" stroke="#DDD" stroke-width="1"/>
+  <text x="50" y="1568" class="section-title">5. Data Flow &amp; Comparison with cute_simple</text>
+
+  <g transform="translate(60, 1590)">
+    <!-- Full pipeline -->
+    <!-- Stage 1: Global Memory -->
+    <rect x="0" y="0" width="180" height="95" fill="#EBF5FB" stroke="#4A90D9" stroke-width="2" rx="8"/>
+    <text x="90" y="20" text-anchor="middle" class="subtitle" fill="#4A90D9">Global Memory</text>
+    <text x="10" y="40" class="code">A: (M, K) row-major</text>
+    <text x="10" y="56" class="code">B: (N, K) view</text>
+    <text x="10" y="74" class="code" fill="#1E8449">Cooperative load</text>
+    <text x="10" y="88" class="code" fill="#1E8449">by all 128 threads</text>
+
+    <!-- Arrow: cp_async -->
+    <path d="M190,47 L250,47" class="arrow-bold"/>
+    <text x="220" y="38" text-anchor="middle" class="tiny" fill="#8E44AD">cp_async</text>
+    <text x="220" y="62" text-anchor="middle" class="tiny" fill="#8E44AD">128-bit</text>
+
+    <!-- Stage 2: Shared Memory -->
+    <rect x="260" y="0" width="200" height="95" fill="#D7BDE2" stroke="#8E44AD" stroke-width="2" rx="8"/>
+    <text x="360" y="20" text-anchor="middle" class="subtitle" fill="#8E44AD">Shared Memory</text>
+    <text x="270" y="40" class="code">sA: 128x32 (pad 36)</text>
+    <text x="270" y="56" class="code">sB: 128x32 (pad 132)</text>
+    <text x="270" y="74" class="code" fill="#8E44AD">Tile loaded once,</text>
+    <text x="270" y="88" class="code" fill="#8E44AD">read many times</text>
+
+    <!-- Arrow: copy -->
+    <path d="M470,47 L520,47" class="arrow-bold"/>
+    <text x="495" y="38" text-anchor="middle" class="tiny" fill="#555">copy()</text>
+
+    <!-- Stage 3: Registers -->
+    <rect x="530" y="0" width="200" height="95" fill="#FDEBD0" stroke="#E67E22" stroke-width="2" rx="8"/>
+    <text x="630" y="20" text-anchor="middle" class="subtitle" fill="#E67E22">Register Frags</text>
+    <text x="540" y="40" class="code">tCrA: MMA A fragment</text>
+    <text x="540" y="56" class="code">tCrB: MMA B fragment</text>
+    <text x="540" y="74" class="code">tCrC: accumulator</text>
+    <text x="540" y="88" class="code" fill="#E67E22">(stays in regs)</text>
+
+    <!-- Arrow: gemm -->
+    <path d="M740,47 L790,47" class="arrow-bold"/>
+    <text x="765" y="38" text-anchor="middle" class="tiny" fill="#555">gemm()</text>
+
+    <!-- Stage 4: Tensor Core -->
+    <rect x="800" y="0" width="180" height="95" fill="#FADBD8" stroke="#E74C3C" stroke-width="2" rx="8"/>
+    <text x="890" y="20" text-anchor="middle" class="subtitle" fill="#E74C3C">Tensor Core</text>
+    <text x="810" y="40" class="code">mma.sync 16x8x8</text>
+    <text x="810" y="56" class="code">128 atoms/k-tile</text>
+    <text x="810" y="74" class="code bold" fill="#E74C3C">131,072 FMAs</text>
+    <text x="810" y="88" class="code bold" fill="#E74C3C">per k-tile</text>
+
+    <!-- Arrow down to store -->
+    <path d="M890,95 L890,120" class="arrow-bold"/>
+
+    <!-- Stage 5: Store back -->
+    <rect x="800" y="125" width="180" height="45" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
+    <text x="890" y="147" text-anchor="middle" class="subtitle" fill="#27AE60">Store C to Global</text>
+    <text x="810" y="163" class="code">copy(tCrC, tCgC)</text>
+
+    <!-- Loop arrow from tensor core back to global -->
+    <path d="M90,95 L90,120 L890,120" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+    <text x="490" y="116" text-anchor="middle" class="small" fill="#888">repeat K/BLK_K = K/32 times (outer k-loop)</text>
+
+    <!-- Comparison table -->
+    <g transform="translate(0, 185)">
+      <rect x="0" y="0" width="1260" height="165" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+      <text x="630" y="22" text-anchor="middle" class="subtitle">Comparison: cute_simple vs cute_smem</text>
+      <line x1="10" y1="30" x2="1250" y2="30" stroke="#EEE"/>
+
+      <!-- Header row -->
+      <text x="40" y="48" class="small bold" fill="#333">Property</text>
+      <text x="400" y="48" class="small bold" fill="#C0392B">cute_simple (no smem)</text>
+      <text x="900" y="48" class="small bold" fill="#1E8449">cute_smem (with cp_async)</text>
+      <line x1="10" y1="54" x2="1250" y2="54" stroke="#EEE"/>
+
+      <!-- Pipeline -->
+      <text x="40" y="72" class="code">Pipeline</text>
+      <text x="400" y="72" class="code" fill="#C0392B">Global -> Regs -> MMA -> Regs -> Global</text>
+      <text x="900" y="72" class="code" fill="#1E8449">Global -> SMEM -> Regs -> MMA -> Regs -> Global</text>
+
+      <!-- BLK_K -->
+      <text x="40" y="90" class="code">BLK_K</text>
+      <text x="400" y="90" class="code">8 (1 MMA K-step per tile)</text>
+      <text x="900" y="90" class="code">32 (4 MMA K-steps per tile)</text>
+
+      <!-- Data reuse -->
+      <text x="40" y="108" class="code">Data reuse</text>
+      <text x="400" y="108" class="code" fill="#C0392B">None -- each thread loads independently</text>
+      <text x="900" y="108" class="code" fill="#1E8449">Full -- cooperative load, shared across all MMA iters</text>
+
+      <!-- Coalescing -->
+      <text x="40" y="126" class="code">Coalescing</text>
+      <text x="400" y="126" class="code" fill="#C0392B">Poor -- MMA partition != memory-optimal layout</text>
+      <text x="900" y="126" class="code" fill="#1E8449">Good -- tiled_copy layout designed for coalescing</text>
+
+      <!-- Registers -->
+      <text x="40" y="144" class="code">Register pressure</text>
+      <text x="400" y="144" class="code">A,B fragments loaded through regs</text>
+      <text x="900" y="144" class="code" fill="#1E8449">cp_async bypasses regs (DRAM -> L2 -> SMEM)</text>
+
+      <!-- Role -->
+      <text x="40" y="160" class="code">Role</text>
+      <text x="400" y="160" class="code">Baseline / learn MMA abstractions</text>
+      <text x="900" y="160" class="code" fill="#1E8449">Foundation for swizzle, pipelining, persistent</text>
+    </g>
+
+    <!-- Sync note -->
+    <g transform="translate(0, 365)">
+      <rect width="1260" height="45" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1" rx="4"/>
+      <text x="630" y="18" text-anchor="middle" class="small bold" fill="#7D6608">Synchronization: cp_async_fence() + cp_async_wait&lt;0&gt;() + __syncthreads() after global->smem copy</text>
+      <text x="630" y="34" text-anchor="middle" class="small" fill="#7D6608">__syncthreads() again after compute phase before next tile load (ensures smem is consumed before overwrite)</text>
+    </g>
+
+    <!-- Key insight -->
+    <g transform="translate(0, 425)">
+      <rect width="1260" height="65" fill="white" stroke="#333" stroke-width="1.5" rx="6"/>
+      <text x="630" y="20" text-anchor="middle" class="subtitle">Key Insight: This Is the Foundational CuTe SMEM Pattern</text>
+      <text x="15" y="40" class="code">Cooperative smem load (tiled_copy) + MMA partition (tiled_mma) = the two-phase design all advanced kernels build upon.</text>
+      <text x="15" y="56" class="code" fill="#1E8449">Next steps: add smem swizzle (bank-conflict-free without padding), pipelining (overlap copy+compute), persistent scheduling.</text>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="2180" text-anchor="middle" class="tiny" fill="#AAA">matmul_cute_smem&lt;128, 128, 32&gt; -- CuTe with cp_async Global -> Shared -> Registers -> MMA</text>
+</svg>
