@@ -393,7 +393,7 @@
     <text x="10" y="40" class="code">cp_async 128-bit (uint128_t)</text>
     <text x="10" y="55" class="code">A: 128x32, padded stride BLK_K+4</text>
     <text x="10" y="70" class="code">B: 128x32, padded stride BLK_N+4</text>
-    <text x="10" y="88" class="code" fill="#1E8449">Coalesced loads, pad avoids bank conflicts</text>
+    <text x="10" y="88" class="code" fill="#7D6608">Coalesced loads; pad reduces (1.5-way) conflicts</text>
 
     <path d="M270,50 L310,50" class="arrow-bold"/>
 
@@ -420,7 +420,7 @@
     <text x="950" y="40" class="code">copy(tCrC, tCgC)</text>
     <text x="950" y="55" class="code">Registers -> Global</text>
     <text x="950" y="70" class="code">128x128 output tile</text>
-    <text x="950" y="88" class="code" fill="#1E8449">Coalesced writes</text>
+    <text x="950" y="88" class="code" fill="#7D6608">16/32 B/sector stores</text>
 
     <!-- Loop arrow -->
     <path d="M130,100 L130,130 L760,130 L760,100" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
@@ -483,7 +483,7 @@
     <text x="1105" y="52" text-anchor="middle" class="subtitle" fill="#27AE60">Store C</text>
     <text x="1030" y="72" class="code">copy(tCrC, tCgC)</text>
     <text x="1030" y="87" class="code">Registers -> Global</text>
-    <text x="1030" y="102" class="code">Coalesced writes</text>
+    <text x="1030" y="102" class="code" fill="#7D6608">16/32 B/sector stores</text>
 
     <!-- Highlight the swizzle as the key addition -->
     <rect x="-5" y="22" width="212" height="106" fill="none" stroke="#8E44AD" stroke-width="3" stroke-dasharray="6,3" rx="10"/>

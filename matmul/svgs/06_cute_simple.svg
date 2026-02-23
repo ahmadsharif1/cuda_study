@@ -387,6 +387,13 @@
 
       <text x="15" y="260" class="code bold" fill="#27AE60">smem version: ~3x less global traffic (and much better coalescing)</text>
     </g>
+
+    <!-- Important nuance: L1 cache helps cute_simple -->
+    <g transform="translate(0, 300)">
+      <rect x="0" y="0" width="1290" height="55" fill="#FCF3CF" stroke="#F1C40F" stroke-width="2" rx="6"/>
+      <text x="645" y="20" text-anchor="middle" class="subtitle" fill="#7D6608">Profile Reality: cute_simple (26ms) is FASTER than cute_smem (34-44ms)</text>
+      <text x="15" y="40" class="code" fill="#7D6608">L1 cache provides 67.6% hit rate, giving implicit data reuse. No __syncthreads() overhead + simpler scheduling outweighs 3x traffic.</text>
+    </g>
   </g>
 
   <!-- ============================================================ -->

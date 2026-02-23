@@ -383,7 +383,7 @@
       <text x="15" y="85" class="code bold" fill="#4A90D9">If memory-bound (T_load > T_compute):</text>
       <text x="30" y="100" class="code" fill="#4A90D9">Compute fills the bubbles during loads. Total time dominated by load. Speedup = (T_load + T_compute) / T_load</text>
 
-      <text x="15" y="120" class="code bold" fill="#C0392B">Trade-off: 2x shared memory usage (168 KB vs 84 KB) -- may reduce occupancy</text>
+      <text x="15" y="120" class="code bold" fill="#C0392B">Profile: 255 regs (MAX!) → severe register spills (local 1/32 B/sector). 31.8ms (slower than smem's 44ms? No: 14ms swizzle)</text>
     </g>
   </g>
 
@@ -456,7 +456,7 @@
       <text x="15" y="48" class="code">1. Same per-block pipeline as cute_smem but with OVERLAPPED stages via double buffering</text>
       <text x="15" y="64" class="code" fill="#1E8449">2. While MMA crunches buffer N, cp_async fills buffer (1-N) from global memory -- load latency hidden</text>
       <text x="15" y="80" class="code" fill="#8E44AD">3. This pattern mirrors the hand-written tiled_pipe kernel but uses CuTe abstractions</text>
-      <text x="15" y="96" class="code" fill="#C0392B">4. Cost: 2x shared memory, potential occupancy reduction -- but compute throughput improves significantly</text>
+      <text x="15" y="96" class="code" fill="#C0392B">4. Cost: 2x smem + 255 regs (spills to local mem at 1/32 B/sector). 31.8ms: slower than swizzle (14.3ms) due to spills</text>
     </g>
   </g>
 

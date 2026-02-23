@@ -173,7 +173,7 @@
   <text x="50" y="460" class="section-title">2. cp_async: Global → Shared Memory (128-bit Asynchronous Loads)</text>
   <text x="50" y="478" class="small">SM80_CP_ASYNC_CACHEGLOBAL&lt;uint128_t&gt;: each thread issues one 128-bit (4 float) async load per copy atom invocation</text>
 
-  <!-- ---- A tile loading ---- -->
+  <!-- A tile loading -->
   <g transform="translate(60, 500)">
     <text x="270" y="0" text-anchor="middle" class="subtitle" fill="#4A90D9">Loading A Tile [128 x 32] into Shared Memory</text>
     <text x="270" y="16" text-anchor="middle" class="small">Thread layout: Shape&lt;_16, _8&gt;, Stride&lt;_8, _1&gt; | Value layout: Shape&lt;_1, _4&gt;</text>
@@ -276,7 +276,7 @@
     </g>
   </g>
 
-  <!-- ---- B tile loading ---- -->
+  <!-- B tile loading -->
   <g transform="translate(640, 500)">
     <text x="380" y="0" text-anchor="middle" class="subtitle" fill="#27AE60">Loading B Tile [128 x 32] into Shared Memory</text>
     <text x="380" y="16" text-anchor="middle" class="small">Thread layout: Shape&lt;_32, _4&gt; (Stride&lt;_4, _1&gt;) | Value layout: Shape&lt;_4, _1&gt;</text>
@@ -512,8 +512,8 @@
         <text x="0" y="56" class="code" fill="#27AE60">  m=8: bank(k=0)=0  ← wraps after 8 rows (8*4=32)</text>
       </g>
 
-      <rect x="0" y="228" width="510" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
-      <text x="255" y="246" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">Padding rotates each row's bank mapping → eliminates column-aligned bank conflicts</text>
+      <rect x="0" y="228" width="510" height="26" fill="#FCF3CF" stroke="#F1C40F" rx="4"/>
+      <text x="255" y="246" text-anchor="middle" class="small" fill="#7D6608" font-weight="bold">Padding helps but doesn't eliminate all conflicts: ncu reports 1.5-way load conflicts</text>
     </g>
   </g>
 
@@ -540,7 +540,7 @@
       </g>
 
       <text x="0" y="210" class="small" fill="#555">Cost of padding: 4 wasted floats per row/column = ~3% smem overhead</text>
-      <text x="0" y="226" class="small" fill="#555">Benefit: eliminates bank conflicts during MMA's smem→register loads</text>
+      <text x="0" y="226" class="small" fill="#555">Benefit: reduces bank conflicts (1.5-way vs higher without pad); doesn't fully eliminate</text>
     </g>
   </g>
 
@@ -691,7 +691,7 @@
     <text x="645" y="20" text-anchor="middle" class="subtitle" fill="#E67E22">Shared → Registers</text>
     <text x="645" y="38" text-anchor="middle" class="code">MMA partition copy</text>
     <text x="645" y="52" text-anchor="middle" class="code">Padded smem layout</text>
-    <text x="645" y="66" text-anchor="middle" class="code" fill="#27AE60">No bank conflicts</text>
+    <text x="645" y="66" text-anchor="middle" class="code" fill="#C0392B">1.5-way bank conflicts (ncu)</text>
 
     <!-- Arrow -->
     <path d="M770,40 L800,40" class="arrow-bold"/>
@@ -709,7 +709,7 @@
     <!-- Stage 5: Store C -->
     <rect x="810" y="110" width="230" height="50" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
     <text x="925" y="132" text-anchor="middle" class="subtitle" fill="#27AE60">Store C (Global)</text>
-    <text x="925" y="148" text-anchor="middle" class="code" fill="#1E8449">Coalesced writes</text>
+    <text x="925" y="148" text-anchor="middle" class="code" fill="#C0392B">16/32 B/sector stores</text>
 
     <!-- Loop arrow: k-tile loop -->
     <path d="M925,80 Q970,92 970,40 Q970,-10 645,-10 Q320,-10 365,0" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
@@ -739,7 +739,7 @@
       <text x="535" y="64" class="code" fill="#E74C3C">Compute: SM80 tensor core (mma.sync 16x8x8)</text>
       <text x="535" y="78" class="code" fill="#E74C3C">Per k-tile: 131K FMAs, ~2K loads (ratio ~64:1)</text>
       <text x="535" y="92" class="code" fill="#2980B9">Load: cp_async (bypasses register file)</text>
-      <text x="535" y="106" class="code" fill="#27AE60">Smem: PAD=4 → bank conflicts eliminated</text>
+      <text x="535" y="106" class="code" fill="#C0392B">Smem: PAD=4 → 1.5-way conflicts remain (ncu)</text>
       <text x="535" y="120" class="code" fill="#8E44AD">Scheduling: persistent + col-major (L2 reuse)</text>
     </g>
   </g>

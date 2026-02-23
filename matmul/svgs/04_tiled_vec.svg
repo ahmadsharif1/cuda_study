@@ -305,8 +305,8 @@
   <!-- SECTION 3: Padded Shared Memory (KEY DIFFERENCE)             -->
   <!-- ============================================================ -->
   <line x1="40" y1="800" x2="1460" y2="800" stroke="#DDD" stroke-width="1"/>
-  <text x="50" y="830" class="section-title">3. Padded Shared Memory Layout: Eliminating Bank Conflicts</text>
-  <text x="50" y="848" class="small" fill="#C0392B">KEY DIFFERENCE: As[128][8+4]=As[128][12], Bs[8][128+4]=Bs[8][132]. PAD=4 breaks bank conflict patterns.</text>
+  <text x="50" y="830" class="section-title">3. Padded Shared Memory Layout: Reducing (Not Eliminating) Bank Conflicts</text>
+  <text x="50" y="848" class="small" fill="#C0392B">KEY DIFFERENCE: As[128][12], Bs[8][132]. PAD=4 helps k-stride alignment but stride-8 Bs conflicts persist.</text>
 
   <!-- As bank analysis -->
   <g transform="translate(60, 870)">
@@ -410,9 +410,10 @@
       <text x="441" y="40" text-anchor="middle" class="tiny" fill="#1E8449">k=6</text>
       <text x="513" y="40" text-anchor="middle" class="tiny" fill="#1E8449">k=7</text>
     </g>
-    <text x="288" y="70" text-anchor="middle" class="tiny">Banks 0-31 (each k-step accesses a different bank for Bs[k][0] with PAD=4)</text>
-    <rect x="0" y="80" width="580" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
-    <text x="290" y="98" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">Zero bank conflicts! PAD shifts each k-row by 4 banks (stride 132 % 32 = 4)</text>
+    <text x="288" y="70" text-anchor="middle" class="tiny">Banks 0-31 (PAD shifts sequential k-steps to different banks for one thread)</text>
+    <rect x="0" y="80" width="580" height="42" fill="#FCF3CF" stroke="#F1C40F" rx="4"/>
+    <text x="290" y="96" text-anchor="middle" class="small" fill="#7D6608" font-weight="bold">PAD helps k-stride alignment, but threads still read at stride-8 during compute:</text>
+    <text x="290" y="112" text-anchor="middle" class="small" fill="#7D6608">T0→col 0, T4→col 32 hit same bank → 5.0-way load conflicts (ncu measured)</text>
   </g>
 
   <!-- Cost annotation -->
@@ -420,14 +421,14 @@
     <rect x="0" y="0" width="400" height="60" fill="white" stroke="#DDD" stroke-width="1" rx="6"/>
     <text x="200" y="20" text-anchor="middle" class="subtitle">Padding Cost</text>
     <text x="10" y="38" class="code">Extra smem: As: 128*4=512 floats, Bs: 8*4=32 floats</text>
-    <text x="10" y="52" class="code">= 2.2KB extra (~3-6% overhead) for zero bank conflicts</text>
+    <text x="10" y="52" class="code">= 2.2KB extra; helps As k-stride, Bs stride-8 conflicts remain</text>
   </g>
 
   <!-- ============================================================ -->
   <!-- SECTION 4: Compute Pattern (same outer product)              -->
   <!-- ============================================================ -->
   <line x1="40" y1="1180" x2="1460" y2="1180" stroke="#DDD" stroke-width="1"/>
-  <text x="50" y="1210" class="section-title">4. Compute Pattern: Outer Product (identical to tiled_reg, but conflict-free smem reads)</text>
+  <text x="50" y="1210" class="section-title">4. Compute Pattern: Outer Product (same as tiled_reg; Bs stride-8 conflicts persist)</text>
 
   <g transform="translate(80, 1240)">
     <!-- a_reg column vector -->
@@ -489,7 +490,7 @@
       <text x="170" y="22" text-anchor="middle" class="subtitle">Per Thread, Per k-step</text>
       <line x1="10" y1="30" x2="330" y2="30" stroke="#EEE"/>
       <text x="15" y="50" class="code" fill="#4A90D9">Smem loads from As:  TM  =  8 (broadcast, no conflicts)</text>
-      <text x="15" y="68" class="code" fill="#27AE60">Smem loads from Bs:  TN  =  8 (conflict-free with PAD!)</text>
+      <text x="15" y="68" class="code" fill="#C0392B">Smem loads from Bs:  TN  =  8 (5.0-way conflict, stride-8)</text>
       <line x1="15" y1="76" x2="280" y2="76" stroke="#EEE"/>
       <text x="15" y="94" class="code">Total smem loads:    TM+TN = 16</text>
       <text x="15" y="114" class="code" fill="#E67E22">FMA operations:      TM*TN = 64  (ratio 4:1)</text>
@@ -497,13 +498,13 @@
 
     <!-- Key improvement callout -->
     <g transform="translate(700, 0)">
-      <rect x="0" y="0" width="360" height="130" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" rx="6"/>
-      <text x="180" y="22" text-anchor="middle" class="subtitle" fill="#1E8449">Improvement Over tiled_reg</text>
-      <line x1="10" y1="30" x2="350" y2="30" stroke="#27AE60" opacity="0.3"/>
+      <rect x="0" y="0" width="360" height="130" fill="#FCF3CF" stroke="#F1C40F" stroke-width="1.5" rx="6"/>
+      <text x="180" y="22" text-anchor="middle" class="subtitle" fill="#7D6608">Comparison vs tiled_reg</text>
+      <line x1="10" y1="30" x2="350" y2="30" stroke="#F1C40F" opacity="0.3"/>
       <text x="15" y="50" class="code" fill="#1E8449">As reads: broadcast (same as before)</text>
-      <text x="15" y="68" class="code" fill="#1E8449">Bs reads: ZERO bank conflicts (was 4-way!)</text>
-      <text x="15" y="88" class="code" fill="#1E8449">Each smem read completes in 1 cycle</text>
-      <text x="15" y="108" class="code" fill="#1E8449">vs 4 serialized cycles with bank conflicts</text>
+      <text x="15" y="68" class="code" fill="#C0392B">Bs reads: still 5.0-way conflict (stride-8)</text>
+      <text x="15" y="88" class="code" fill="#7D6608">PAD helps As k-alignment, not Bs stride</text>
+      <text x="15" y="108" class="code" fill="#1E8449">Main gain: float4 vectorization (1.35x)</text>
     </g>
   </g>
 
@@ -531,8 +532,8 @@
     <text x="520" y="22" text-anchor="middle" class="subtitle" fill="#E67E22">Shared --> Registers</text>
     <text x="380" y="42" class="code">Per k-step (k = 0..7):</text>
     <text x="380" y="58" class="code">a_reg[8] from As (broadcast)</text>
-    <text x="380" y="74" class="code">b_reg[8] from Bs (conflict-free!)</text>
-    <text x="380" y="92" class="code bold" fill="#1E8449">PAD=4 eliminates bank conflicts</text>
+    <text x="380" y="74" class="code">b_reg[8] from Bs (5.0-way conflict)</text>
+    <text x="380" y="92" class="code" fill="#C0392B">PAD=4 helps As; Bs still conflicted</text>
 
     <!-- Arrow -->
     <path d="M680,55 L730,55" class="arrow-bold"/>
@@ -573,13 +574,13 @@
     <text x="30" y="98" class="code">Shared memory</text>
     <text x="280" y="98" class="code" fill="#C0392B">As[128][8], Bs[8][128] (no padding)</text>
     <text x="600" y="98" class="code" fill="#1E8449">As[128][12], Bs[8][132] (PAD=4)</text>
-    <text x="900" y="98" class="code bold">Zero bank conflicts</text>
+    <text x="900" y="98" class="code bold">As improved; Bs still 5-way</text>
 
     <!-- Smem reads -->
     <text x="30" y="120" class="code">Smem reads</text>
     <text x="280" y="120" class="code" fill="#C0392B">Bs: 4-way bank conflict (stride-8)</text>
-    <text x="600" y="120" class="code" fill="#1E8449">Bs: conflict-free (stride shifted)</text>
-    <text x="900" y="120" class="code bold">~4x smem throughput</text>
+    <text x="600" y="120" class="code" fill="#C0392B">Bs: 5.0-way conflict (stride-8 persists)</text>
+    <text x="900" y="120" class="code bold">Same Bs conflicts</text>
 
     <!-- Compute -->
     <text x="30" y="142" class="code">Compute</text>
@@ -590,7 +591,7 @@
     <!-- Overall -->
     <line x1="10" y1="152" x2="1090" y2="152" stroke="#DDD"/>
     <text x="30" y="170" class="code bold">Expected speedup</text>
-    <text x="600" y="170" class="code bold" fill="#1E8449">Typically 1.5-2x from vectorization + bank conflict elimination</text>
+    <text x="600" y="170" class="code bold" fill="#1E8449">1.35x measured (67.7→50.2ms): mainly from float4 vectorization</text>
   </g>
 
   <!-- Footer -->

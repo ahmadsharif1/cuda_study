@@ -1454,6 +1454,131 @@ int main(int argc, char** argv) {
         run_benchmark("CuTe SMEM k=32", smem_k32_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
     }
 
+    // CuTe persistent kernel: each block loops over multiple output tiles
+    if (should_run("CuTe Persistent", kernel_filters)) {
+        using mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>
+        >;
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 32;
+        mma_t tiled_mma;
+
+        using CopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>;
+        auto copy_a = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_16, _8>, Stride<_8, _1>>{},
+            Layout<Shape< _1, _4>>{});
+        auto copy_b = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_32, _4>>{},
+            Layout<Shape< _4, _1>>{});
+
+        constexpr int PAD = 4;
+        auto sA_layout = make_layout(make_shape(Int<BLK_M>{}, Int<BLK_K>{}),
+                                     make_stride(Int<BLK_K + PAD>{}, Int<1>{}));
+        auto sB_layout = make_layout(make_shape(Int<BLK_N>{}, Int<BLK_K>{}),
+                                     make_stride(Int<1>{}, Int<BLK_N + PAD>{}));
+
+        int smem_size = (cosize(sA_layout) + cosize(sB_layout)) * sizeof(float);
+
+        int device;
+        cudaGetDevice(&device);
+        int num_sms;
+        cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device);
+
+        int total_tiles = (M / BLK_M) * (N / BLK_N);
+        dim3 block_p(size(tiled_mma));
+        dim3 grid_p(min(total_tiles, num_sms));
+
+        auto persistent_op = [&]() {
+            matmul_cute_persistent<BLK_M, BLK_N, BLK_K>
+                <<<grid_p, block_p, smem_size>>>(d_A, d_B, d_C, M, K, N,
+                    tiled_mma, copy_a, copy_b, sA_layout, sB_layout);
+        };
+
+        run_benchmark("CuTe Persistent", persistent_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CuTe SMEM kernel with CTA swizzle for L2 cache reuse
+    if (should_run("CuTe Swizzle", kernel_filters)) {
+        using mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>
+        >;
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 32;
+        constexpr int SWIZZLE = 4;
+        mma_t tiled_mma;
+
+        using CopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>;
+        auto copy_a = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_16, _8>, Stride<_8, _1>>{},
+            Layout<Shape< _1, _4>>{});
+        auto copy_b = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_32, _4>>{},
+            Layout<Shape< _4, _1>>{});
+
+        constexpr int PAD = 4;
+        auto sA_layout = make_layout(make_shape(Int<BLK_M>{}, Int<BLK_K>{}),
+                                     make_stride(Int<BLK_K + PAD>{}, Int<1>{}));
+        auto sB_layout = make_layout(make_shape(Int<BLK_N>{}, Int<BLK_K>{}),
+                                     make_stride(Int<1>{}, Int<BLK_N + PAD>{}));
+
+        int smem_size = (cosize(sA_layout) + cosize(sB_layout)) * sizeof(float);
+        int total_tiles = (M / BLK_M) * (N / BLK_N);
+        dim3 block_sw(size(tiled_mma));
+        dim3 grid_sw(total_tiles);
+
+        auto swizzle_op = [&]() {
+            matmul_cute_swizzle<BLK_M, BLK_N, BLK_K, SWIZZLE>
+                <<<grid_sw, block_sw, smem_size>>>(d_A, d_B, d_C, M, K, N,
+                    tiled_mma, copy_a, copy_b, sA_layout, sB_layout);
+        };
+
+        run_benchmark("CuTe Swizzle", swizzle_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
+    // CuTe SMEM kernel with double-buffered pipeline
+    if (should_run("CuTe Pipe", kernel_filters)) {
+        using mma_t = TiledMMA<
+            MMA_Atom<SM80_16x8x8_F32TF32TF32F32_TN>,
+            Layout<Shape<_2, _2, _1>>
+        >;
+        constexpr int BLK_M = 128, BLK_N = 128, BLK_K = 32;
+        mma_t tiled_mma;
+
+        using CopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>, float>;
+        auto copy_a = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_16, _8>, Stride<_8, _1>>{},
+            Layout<Shape< _1, _4>>{});
+        auto copy_b = make_tiled_copy(CopyAtom{},
+            Layout<Shape<_32, _4>>{},
+            Layout<Shape< _4, _1>>{});
+
+        constexpr int PAD = 4;
+        auto sA_layout = make_layout(make_shape(Int<BLK_M>{}, Int<BLK_K>{}),
+                                     make_stride(Int<BLK_K + PAD>{}, Int<1>{}));
+        auto sB_layout = make_layout(make_shape(Int<BLK_N>{}, Int<BLK_K>{}),
+                                     make_stride(Int<1>{}, Int<BLK_N + PAD>{}));
+
+        // Double buffer: 2x the shared memory
+        int smem_size = 2 * (cosize(sA_layout) + cosize(sB_layout)) * sizeof(float);
+        dim3 block_pipe(size(tiled_mma));
+        dim3 grid_pipe(M / BLK_M, N / BLK_N);
+
+        // May need >48KB smem — set dynamic smem limit
+        cudaFuncSetAttribute(
+            matmul_cute_pipe<BLK_M, BLK_N, BLK_K,
+                decltype(tiled_mma), decltype(copy_a), decltype(copy_b),
+                decltype(sA_layout), decltype(sB_layout)>,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
+
+        auto pipe_op = [&]() {
+            matmul_cute_pipe<BLK_M, BLK_N, BLK_K>
+                <<<grid_pipe, block_pipe, smem_size>>>(d_A, d_B, d_C, M, K, N,
+                    tiled_mma, copy_a, copy_b, sA_layout, sB_layout);
+        };
+
+        run_benchmark("CuTe Pipe", pipe_op, d_C, h_C, h_A, h_B, M, K, N, iterations, benchmark_mode);
+    }
+
     // CuTe SM90 wgmma: reads A and B from swizzled smem (no smem->reg copy)
     if (should_run("CuTe WGMMA", kernel_filters)) {
         using MmaAtom = SM90_64x128x8_F32TF32TF32_SS_TN<>;

@@ -185,7 +185,7 @@
   <line x1="40" y1="410" x2="1460" y2="410" stroke="#DDD" stroke-width="1"/>
   <text x="50" y="440" class="section-title">2. Global Memory → Shared Memory: Coalescing Analysis (Warp 0, iteration i=0)</text>
 
-  <!-- ---- LEFT: A tile loading ---- -->
+  <!-- LEFT: A tile loading -->
   <g transform="translate(60, 470)">
     <text x="200" y="0" text-anchor="middle" class="subtitle" fill="#C0392B">Loading A Tile: NOT Fully Coalesced</text>
     <text x="200" y="18" text-anchor="middle" class="small">idx = tid, a_row = idx/8, a_col = idx%8</text>
@@ -305,7 +305,7 @@
     </g>
   </g>
 
-  <!-- ---- RIGHT: B tile loading ---- -->
+  <!-- RIGHT: B tile loading -->
   <g transform="translate(560, 470)">
     <text x="420" y="0" text-anchor="middle" class="subtitle" fill="#8E44AD">Loading B Tile: COALESCED</text>
     <text x="420" y="18" text-anchor="middle" class="small">idx = tid, b_row = idx/128, b_col = idx%128</text>
@@ -691,8 +691,8 @@
   <text x="50" y="1790" class="section-title">5. Writing C Output: Coalescing Analysis (Warp 0)</text>
 
   <g transform="translate(60, 1810)">
-    <text x="0" y="0" class="small">Each thread writes its 8x8 sub-tile to C in global memory, row by row.</text>
-    <text x="0" y="16" class="small">For a fixed output row i, threads in the warp write to different columns:</text>
+    <text x="0" y="0" class="small">Each thread writes its 8x8 sub-tile to C in global memory, one element at a time (scalar stores).</text>
+    <text x="0" y="16" class="small">For a fixed i,j: threads in the warp write at stride TN=8 columns apart (not coalesced!):</text>
 
     <g transform="translate(20, 35)">
       <text x="0" y="0" class="code">Thread 0:  C[row, col  0 : col  7]  → 8 consecutive floats</text>
@@ -726,8 +726,9 @@
         <text x="360" y="28" class="small" fill="#555">← 128 consecutive floats (512B)</text>
       </g>
 
-      <rect x="0" y="148" width="520" height="26" fill="#D5F5E3" stroke="#27AE60" rx="4"/>
-      <text x="260" y="166" text-anchor="middle" class="small" fill="#1E8449" font-weight="bold">Warp writes are coalesced: 16 threads x 8 floats = 128 consecutive writes per row</text>
+      <rect x="0" y="148" width="520" height="40" fill="#FADBD8" stroke="#C0392B" rx="4"/>
+      <text x="260" y="162" text-anchor="middle" class="small" fill="#C0392B" font-weight="bold">Per-instruction: stride-8 stores (4/32 bytes per sector). Each thread's col</text>
+      <text x="260" y="178" text-anchor="middle" class="small" fill="#C0392B" font-weight="bold">is TN=8 apart → each store hits a separate 32B sector (12.5% utilization)</text>
     </g>
   </g>
 
@@ -775,10 +776,10 @@
     <path d="M880,110 L880,135" class="arrow-bold"/>
 
     <!-- Stage 4: Registers → Global -->
-    <rect x="740" y="140" width="280" height="65" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="8"/>
-    <text x="880" y="162" text-anchor="middle" class="subtitle" fill="#27AE60">Registers → Global (Store C)</text>
+    <rect x="740" y="140" width="280" height="65" fill="#FADBD8" stroke="#C0392B" stroke-width="2" rx="8"/>
+    <text x="880" y="162" text-anchor="middle" class="subtitle" fill="#C0392B">Registers → Global (Store C)</text>
     <text x="750" y="182" class="code">8x8 accum → C global memory</text>
-    <text x="750" y="196" class="code" fill="#1E8449">Coalesced across warp</text>
+    <text x="750" y="196" class="code" fill="#C0392B">Stride-8 uncoalesced (4/32 B/sector)</text>
 
     <!-- Loop arrow back from stage 3 to stage 1 -->
     <path d="M150,110 L150,145 L880,145 L880,135" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>

@@ -264,7 +264,7 @@
 
     <text x="495" y="50" class="code">As[buf][128][12]  (8 + PAD=4)</text>
     <text x="495" y="66" class="code">Bs[buf][8][132]   (128 + PAD=4)</text>
-    <text x="495" y="86" class="code bold" fill="#1E8449">Zero bank conflicts (same as tiled_vec)</text>
+    <text x="495" y="86" class="code bold" fill="#C0392B">5.0-way load + 6.2-way store conflicts</text>
     <text x="495" y="106" class="code">PAD shifts bank mapping per row/k</text>
     <text x="495" y="126" class="code">As: stride 12, GCD(12,32)=4</text>
     <text x="495" y="142" class="code">Bs: stride 132, 132%32=4</text>
@@ -342,7 +342,7 @@
       <text x="160" y="20" text-anchor="middle" class="subtitle">Per Thread, Per k-step (same as tiled_vec)</text>
       <line x1="10" y1="28" x2="310" y2="28" stroke="#EEE"/>
       <text x="15" y="46" class="code" fill="#4A90D9">Smem loads from As[buf]:  8  (broadcast)</text>
-      <text x="15" y="62" class="code" fill="#27AE60">Smem loads from Bs[buf]:  8  (conflict-free)</text>
+      <text x="15" y="62" class="code" fill="#C0392B">Smem loads from Bs[buf]:  8  (5.0-way conflict)</text>
       <text x="15" y="80" class="code" fill="#E67E22">FMA operations:           64  (ratio 4:1)</text>
       <text x="15" y="100" class="code bold">Over full BLK_K=8: 512 FMAs/tile</text>
     </g>
@@ -501,19 +501,19 @@
     <text x="15" y="50" class="code" fill="#C0392B">Cost: 2x shared memory usage</text>
     <text x="15" y="66" class="code">  tiled_vec: As[128][12] + Bs[8][132]  =  28.8 KB</text>
     <text x="15" y="82" class="code">  tiled_pipe: 2x (As[128][12] + Bs[8][132]) = 57.6 KB</text>
-    <text x="15" y="102" class="code" fill="#888">H100 has 228 KB shared memory per SM</text>
-    <text x="15" y="118" class="code" fill="#888">57.6 KB allows 3 blocks per SM (vs 7 with single buffer)</text>
+    <text x="15" y="102" class="code" fill="#C0392B">130 regs/thread → register-limited to 2 blocks/SM</text>
+    <text x="15" y="118" class="code" fill="#C0392B">Occupancy: 12.5% (vs 25% for tiled_vec with 128 regs)</text>
 
-    <!-- Speedup box -->
-    <rect x="680" y="0" width="620" height="135" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" rx="6"/>
-    <text x="990" y="22" text-anchor="middle" class="subtitle" fill="#1E8449">Expected Speedup</text>
-    <line x1="690" y1="30" x2="1290" y2="30" stroke="#27AE60" opacity="0.3"/>
+    <!-- Speedup box (actual: SLOWER, not faster) -->
+    <rect x="680" y="0" width="620" height="135" fill="#FADBD8" stroke="#C0392B" stroke-width="2" rx="6"/>
+    <text x="990" y="22" text-anchor="middle" class="subtitle" fill="#C0392B">Actual Result: 46% SLOWER (73.4ms vs 50.2ms)</text>
+    <line x1="690" y1="30" x2="1290" y2="30" stroke="#C0392B" opacity="0.3"/>
 
-    <text x="695" y="50" class="code" fill="#1E8449">Benefit: Hides global memory load latency</text>
-    <text x="695" y="70" class="code" fill="#1E8449">Global mem latency: ~400-800 cycles</text>
-    <text x="695" y="86" class="code" fill="#1E8449">Compute per tile: 512 FMAs ~ few hundred cycles</text>
-    <text x="695" y="106" class="code bold" fill="#1E8449">If compute >= load latency: load is fully hidden</text>
-    <text x="695" y="126" class="code bold" fill="#1E8449">Typical speedup: 10-20% over tiled_vec</text>
+    <text x="695" y="50" class="code" fill="#C0392B">2x smem (20.7KB) → occupancy drops 25% → 12.5%</text>
+    <text x="695" y="70" class="code" fill="#C0392B">130 regs/thread limits to 2 blocks/SM</text>
+    <text x="695" y="86" class="code" fill="#C0392B">6.2-way store bank conflicts (worse than vec's 4.2)</text>
+    <text x="695" y="106" class="code bold" fill="#C0392B">Low occupancy means fewer warps to hide latency</text>
+    <text x="695" y="126" class="code bold" fill="#C0392B">Double buffering backfires when occupancy is already low</text>
   </g>
 
   <!-- Final comparison table -->
@@ -549,8 +549,8 @@
 
     <!-- Overall -->
     <line x1="10" y1="126" x2="1090" y2="126" stroke="#DDD"/>
-    <text x="30" y="142" class="code bold">Expected speedup</text>
-    <text x="600" y="142" class="code bold" fill="#1E8449">Typically 10-20% from latency hiding (memory-bound workloads benefit more)</text>
+    <text x="30" y="142" class="code bold">Actual result</text>
+    <text x="600" y="142" class="code bold" fill="#C0392B">46% slower (73.4ms vs 50.2ms): 2x smem halves occupancy, negating latency hiding</text>
   </g>
 
   <!-- Footer -->

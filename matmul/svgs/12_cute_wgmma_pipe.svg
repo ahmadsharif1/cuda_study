@@ -430,7 +430,7 @@
       <!-- Double buffer smem -->
       <rect x="140" y="0" width="200" height="50" fill="#D7BDE2" stroke="#8E44AD" stroke-width="2" rx="6"/>
       <text x="240" y="18" text-anchor="middle" class="small bold" fill="#8E44AD">Swizzled Shared Memory</text>
-      <text x="240" y="34" text-anchor="middle" class="tiny">[buf0] <-> [buf1] (double buffer)</text>
+      <text x="240" y="34" text-anchor="middle" class="tiny">[buf0] &lt;-&gt; [buf1] (double buffer)</text>
 
       <path d="M345,25 L375,25" class="arrow-bold"/>
       <text x="360" y="18" text-anchor="middle" class="tiny">wgmma</text>

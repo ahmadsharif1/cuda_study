@@ -608,6 +608,7 @@
       <text x="630" y="20" text-anchor="middle" class="subtitle">Key Insight: This Is the Foundational CuTe SMEM Pattern</text>
       <text x="15" y="40" class="code">Cooperative smem load (tiled_copy) + MMA partition (tiled_mma) = the two-phase design all advanced kernels build upon.</text>
       <text x="15" y="56" class="code" fill="#1E8449">Next steps: add smem swizzle (bank-conflict-free without padding), pipelining (overlap copy+compute), persistent scheduling.</text>
+      <text x="15" y="76" class="code" fill="#C0392B">Profile note: 128 regs/thread, 1.6-way shared load bank conflicts (k=32), 16/32 B/sector global stores. cute_simple (26ms) is faster due to L1 cache (67.6% hit).</text>
     </g>
   </g>
 
