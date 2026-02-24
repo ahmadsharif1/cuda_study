@@ -17,12 +17,13 @@ mdc: true
 
 <br>
 
-Micro-benchmarks for instruction throughput, memory latency & bandwidth,
-matrix transpose, and GEMM — measured at **1.98 GHz** boost clock, CUDA 12.8.
+Building a matrix multiply from scratch — from 3.7 TFLOPS to 301 TFLOPS (94% of cuBLAS).
+
+Measured at **1.98 GHz** boost clock, CUDA 12.8.
 
 ---
 
-# H100 SM Architecture — Simple Model
+# H100 SM Architecture
 
 <br>
 
@@ -30,8 +31,8 @@ Each SM has **4 processing blocks** (sub-partitions), each with:
 
 - 1 warp scheduler → issues **1 warp-instruction per cycle** (32 threads)
 - 32 FP32 CUDA cores (128 total per SM)
-- FP64 cores (1:2 ratio vs FP32)
-- Tensor cores (4th gen)
+- 4th-gen Tensor Cores (TF32, FP16, INT8)
+- 256 KB register file per SM
 
 <br>
 
@@ -39,13 +40,378 @@ Each SM has **4 processing blocks** (sub-partitions), each with:
 
 <br>
 
-| Resource | Per SM / cycle | Full GPU |
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    H100 SXM5 (132 SMs)                      │
+│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐     ┌──────┐         │
+│  │ SM 0 │ │ SM 1 │ │ SM 2 │ │ SM 3 │ ... │SM 131│         │
+│  │ 4×TC │ │ 4×TC │ │ 4×TC │ │ 4×TC │     │ 4×TC │         │
+│  │128 FP│ │128 FP│ │128 FP│ │128 FP│     │128 FP│         │
+│  └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘     └──┬───┘         │
+│     └────┬───┴────┬───┴────┬───┴─────...────┘              │
+│          │   L2 Cache (60 MB, 3.6 TB/s)      │              │
+│          └──────────────┬────────────────────┘              │
+│                    HBM3 (80 GB, 2.0 TB/s)                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# Theoretical Peak Performance
+
+<br>
+
+| Resource | Per SM / cycle | Full GPU (132 SMs × 1.98 GHz) |
 |---|---|---|
 | FP32 FMA | 4 × 32 × 2 = 256 FLOPS | **66.9 TFLOPS** |
-| FP32 FADD/FMUL only | 128 ops | 33.4 TFLOPS |
 | TF32 Tensor Core (dense) | — | **494.7 TFLOPS** |
-| HBM3 (spec / measured) | — | 3.35 / **2.0 TB/s** |
-| L2 cache (measured BW) | — | 60 MB, **3.6 TB/s** |
+| HBM3 bandwidth | — | 3.35 TB/s spec / **2.0 TB/s** measured |
+| L2 cache bandwidth | — | **3.6 TB/s** measured |
+
+<br>
+
+### Memory hierarchy latency (measured)
+
+| Level | Latency | Bandwidth |
+|---|---|---|
+| Shared Memory | 14 ns (28 cycles) | ~19 TB/s aggregate |
+| L1 Cache | 20 ns (40 cycles) | |
+| L2 Cache | 131 ns (260 cycles) | 3.6 TB/s |
+| HBM / DRAM | 288 ns (571 cycles) | 2.0 TB/s |
+
+---
+
+# Why Matrix Multiply?
+
+<br>
+
+### Every neural network is built on GEMM
+
+- **Linear layers:** `y = Wx + b` → matrix multiply
+- **Attention:** `QKᵀ` and `(QKᵀ)V` → two matrix multiplies per head
+- **Convolutions:** im2col + GEMM is the standard implementation
+
+<br>
+
+### The arithmetic intensity makes it interesting
+
+```
+GEMM: A(M×K) × B(K×N) → C(M×N)
+  FLOPs:        2·M·K·N
+  Bytes loaded:  4·(M·K + K·N)           (FP32)
+  Arithmetic intensity:  M·N / (2·(M+N))  ≈ M/4  for square
+```
+
+For M=4096: AI ≈ 1024 FLOP/byte — firmly **compute-bound**.
+
+But reaching peak requires mastery of the full memory hierarchy:
+registers → shared memory → L2 → HBM, plus tensor cores, async copies, and hardware scheduling.
+
+---
+
+# GEMM Problem Setup
+
+<br>
+
+### Dimensions
+
+`A(4096 × 16384) × B(16384 × 8192) → C(4096 × 8192)`
+
+**1.1 × 10¹² FLOPs** per GEMM (1.1 TFLOP)
+
+<br>
+
+### Progression
+
+```
+Naive FP32          3.7 TFLOPS  ──┐
+                                  │  11× (FP32 → TF32 tensor cores)
+CuTe Simple MMA    42.2 TFLOPS ──┘──┐
+                                    │  2.3× (+ shared memory, cp.async)
+CuTe SMEM k=32     95.2 TFLOPS ────┘──┐
+                                       │  1.8× (SM90 wgmma, no smem→reg copy)
+CuTe WGMMA        175.6 TFLOPS ───────┘──┐
+                                          │  1.4× (+ double-buffered pipeline)
+CuTe WGMMA Pipe   244.3 TFLOPS ──────────┘──┐
+                                             │  1.2× (+ TMA, larger tile)
+CuTe WGMMA TMA    300.9 TFLOPS  ────────────┘
+       128×256
+                                    ┌─────────────────────
+cuBLAS TF32        319.7 TFLOPS ────┘  hand-written = 94%
+```
+
+---
+
+# Kernel 1: Naive FP32
+
+<br>
+
+<div class="grid grid-cols-[1fr_1fr] gap-4">
+<div>
+
+### Approach
+Each thread computes **one element** of C:
+```cpp
+for (int k = 0; k < K; k++)
+    C[row][col] += A[row][k] * B[k][col];
+```
+
+### Performance
+| Metric | Value |
+|---|---|
+| Time | 296.2 ms |
+| TFLOPS | 3.7 |
+| % cuBLAS | 1.2% |
+
+### Bottleneck
+- Every thread re-reads **entire K-row** of A and K-column of B from global memory
+- No data reuse between threads
+- 97.6% memory throughput saturated — pure memory bound
+
+</div>
+<div>
+<img src="./svgs/01_naive.svg" class="h-90" />
+</div>
+</div>
+
+---
+
+# Kernel 2: CuTe Simple MMA — Tensor Cores
+
+<br>
+
+<div class="grid grid-cols-[1fr_1fr] gap-4">
+<div>
+
+### What changed
+- **TF32 tensor cores** via CuTe `SM80_16x8x8` MMA atom
+- 128 threads (4 warps), tiled 2×2 MMA layout
+- Still loads A,B directly from **global memory** (no shared memory)
+
+### Performance
+| Metric | Value |
+|---|---|
+| Time | 26.0 ms |
+| TFLOPS | 42.2 |
+| % cuBLAS | 13.2% |
+| Speedup | **11× over naive** |
+
+### Why only 13%?
+- No shared memory → redundant global loads (3× vs smem)
+- L1 cache provides 67.6% hit rate (implicit reuse)
+- MMA partition layout ≠ memory-optimal layout → uncoalesced
+
+</div>
+<div>
+<img src="./svgs/06_cute_simple.svg" class="h-90" />
+</div>
+</div>
+
+---
+
+# Kernel 3: CuTe SMEM — Shared Memory + cp.async
+
+<br>
+
+<div class="grid grid-cols-[1fr_1fr] gap-4">
+<div>
+
+### What changed
+- **`cp.async`**: global → shared memory (bypasses registers)
+- Cooperative tile loading: all 128 threads load A and B tiles
+- Each tile loaded **once**, reused by all MMA iterations
+
+### Performance (k=8 → k=32)
+| Variant | Time | TFLOPS | % cuBLAS |
+|---|---|---|---|
+| k=8 | 17.9 ms | 61.6 | 19.3% |
+| **k=32** | **11.6 ms** | **95.2** | **29.8%** |
+
+### Key insight
+Larger K-tile (32 vs 8) means **4× fewer global loads** per output tile.
+The smem→register copy is now the bottleneck — reads A,B from shared memory
+into register fragments before each MMA.
+
+### Profile note
+1.5-way shared load bank conflicts from padded layout. 128 regs/thread.
+
+</div>
+<div>
+<img src="./svgs/07_cute_smem.svg" class="h-90" />
+</div>
+</div>
+
+---
+
+# Kernel 4: CuTe WGMMA — SM90 Warpgroup MMA
+
+<br>
+
+<div class="grid grid-cols-[1fr_1fr] gap-4">
+<div>
+
+### What changed
+- **SM90 `wgmma.mma_async`**: reads A,B **directly from shared memory**
+- No smem→register copy needed (hardware descriptor-based)
+- **Swizzled layouts** (SW128) eliminate bank conflicts entirely
+- 256 threads (8 warps = 1 warpgroup)
+
+### Performance
+| Metric | Value |
+|---|---|
+| Time | 6.3 ms |
+| TFLOPS | 175.6 |
+| % cuBLAS | 54.9% |
+| Speedup | **1.8× over SMEM k=32** |
+
+### Why the big jump?
+Eliminating the smem→register copy removes an entire pipeline stage.
+The hardware MMA unit reads directly from shared memory via descriptors,
+freeing register file bandwidth for accumulation.
+
+Zero bank conflicts (ncu confirmed).
+
+</div>
+<div>
+<img src="./svgs/11_cute_wgmma.svg" class="h-90" />
+</div>
+</div>
+
+---
+
+# Kernel 5: WGMMA Pipe — Double-Buffered Pipeline
+
+<br>
+
+<div class="grid grid-cols-[1fr_1fr] gap-4">
+<div>
+
+### What changed
+- **Double buffering**: 2× shared memory (buf0, buf1)
+- While MMA computes on buf0, `cp.async` fills buf1
+- Load latency **hidden** behind compute
+
+### Performance
+| Metric | Value |
+|---|---|
+| Time | 4.5 ms |
+| TFLOPS | 244.3 |
+| % cuBLAS | 76.4% |
+| Speedup | **1.4× over WGMMA** |
+
+### With CTA swizzle (+Swiz variant)
+Column-major tile scheduling for L2 cache reuse of B matrix.
+**245.9 TFLOPS (76.9%)** — marginal gain since L2 hit rate was already decent.
+
+### Profile
+- 124 regs/thread, 25% occupancy
+- 65.5 KB dynamic shared memory (2× buffers)
+
+</div>
+<div>
+<img src="./svgs/12_cute_wgmma_pipe.svg" class="h-90" />
+</div>
+</div>
+
+---
+
+# Kernel 6: WGMMA TMA — Hardware Tensor Memory Accelerator
+
+<br>
+
+<div class="grid grid-cols-[1fr_1fr] gap-4">
+<div>
+
+### What changed
+- **TMA** (Tensor Memory Accelerator): dedicated hardware for N-D copies
+- Replaces `cp.async` — no thread participation needed for loads
+- **3-stage pipeline** (vs 2-stage): deeper overlap
+- Fence-based synchronization (`arrive`/`wait` barriers)
+
+### Performance
+| Variant | Time | TFLOPS | % cuBLAS |
+|---|---|---|---|
+| 128×128 tile | 4.6 ms | 238.2 | 74.5% |
+| **128×256 tile** | **3.65 ms** | **300.9** | **94.1%** |
+
+### Why larger tile matters
+128×256 tile doubles work per CTA → better amortization of
+scheduling overhead and barrier synchronization costs.
+At 95.7% SM busy, nearly all compute is utilized.
+
+### Best hand-written: **94.1% of cuBLAS TF32**
+
+</div>
+<div>
+<img src="./svgs/13_cute_wgmma_tma.svg" class="h-90" />
+</div>
+</div>
+
+---
+
+# GEMM — Results Table
+
+<style>
+table { font-size: 0.62em; }
+th, td { padding: 2px 8px; }
+</style>
+
+| Kernel | Key Technique | Time (ms) | TFLOPS | % cuBLAS |
+|---|---|---|---|---|
+| Naive | FP32 scalar, no tiling | 296.2 | 3.7 | 1.2% |
+| CuTe Simple MMA | TF32 tensor cores, gmem→reg | 26.0 | 42.2 | 13.2% |
+| CuTe SMEM k=8 | + `cp.async` to shared mem | 17.9 | 61.6 | 19.3% |
+| CuTe SMEM k=32 | + larger K-tile (4× less traffic) | 11.6 | 95.2 | 29.8% |
+| CuTe WGMMA | SM90 wgmma (smem descriptors) | 6.3 | 175.6 | 54.9% |
+| CuTe WGMMA Pipe | + double-buffered pipeline | 4.5 | 244.3 | 76.4% |
+| WGMMA Pipe+Swiz | + CTA swizzle for L2 reuse | 4.5 | 245.9 | 76.9% |
+| WGMMA TMA 128×128 | + TMA hardware loads, 3-stage | 4.6 | 238.2 | 74.5% |
+| **WGMMA TMA 128×256** | **+ larger tile (128×256)** | **3.65** | **300.9** | **94.1%** |
+| **cuBLAS TF32** | **NVIDIA hand-tuned (TC)** | **3.44** | **319.7** | **100%** |
+
+<br>
+
+<div class="text-center text-lg">
+Best hand-written kernel: <strong>94% of cuBLAS TF32</strong> — an <strong>81× speedup</strong> over naive.
+</div>
+
+---
+
+# What's Missing? The Last 6%
+
+<br>
+
+### cuBLAS achieves 319.7 vs our 300.9 TFLOPS. What are we leaving on the table?
+
+<br>
+
+### 1. Warp Specialization
+Dedicate separate warps to **producing** (loading data) vs **consuming** (computing MMA).
+CUTLASS's warp-specialized persistent kernel does this — avoids resource contention.
+
+### 2. Persistent Kernel + Tile Scheduling
+Launch exactly `num_SMs` blocks that loop over tiles. Combined with stream-K
+decomposition for better load balancing across SMs with uneven tile counts.
+
+### 3. More Pipeline Stages
+4-5 stages instead of 3 — deeper overlap between TMA loads, smem→register copies,
+and MMA compute. More buffering hides longer latency chains.
+
+### 4. Epilogue Fusion + Register Optimization
+Fuse the C store with the last MMA iteration. Careful register allocation
+to avoid spills (our 128×256 kernel uses 90 regs — room for more).
+
+### 5. Auto-Tuning
+Tile sizes, swizzle modes, pipeline depth, cluster size — cuBLAS searches a large
+configuration space per GPU and problem size.
+
+---
+layout: section
+---
+
+# Backup Slides
+
+Micro-benchmarks: instruction latency, memory hierarchy, matrix transpose
 
 ---
 
@@ -80,12 +446,12 @@ __global__ void bench_float(int steps, long long* out) {
 
 # Instruction Latency — Results
 
-<br>
-
 <style>
 table { font-size: 0.7em; }
 th, td { padding: 2px 6px; }
 </style>
+
+<br>
 
 | Instruction | ILP=1 | ILP=2 | ILP=4 | ILP=8 | ILP=16 | ILP=32 | ILP=64 | ILP=128 |
 |---|---|---|---|---|---|---|---|---|
@@ -246,86 +612,3 @@ No shared memory padding → **32-way bank conflicts** on the transposed read
 
 Adding **+1 padding** (`tile[32][33]`) shifts each row by one bank, eliminating
 conflicts entirely → jumps to 95% of HBM bandwidth.
-
----
-
-# GEMM — Kernel Progression
-
-<br>
-
-`A(4096×16384) × B(16384×8192)` — 1.1 × 10¹² FLOPs per GEMM.
-
-<br>
-
-```
-Naive FP32          3.7 TFLOPS  ──┐
-                                  │  11× (FP32 → TF32 tensor cores)
-CuTe Simple MMA    42.2 TFLOPS ──┘──┐
-                                    │  2.3× (+ shared memory, larger K-tile)
-CuTe SMEM k=32     95.2 TFLOPS ────┘──┐
-                                       │  1.8× (SM90 wgmma, no smem→reg copy)
-CuTe WGMMA        175.6 TFLOPS ───────┘──┐
-                                          │  1.4× (+ double-buffered pipeline)
-CuTe WGMMA Pipe   244.3 TFLOPS ──────────┘──┐
-                                             │  1.2× (+ TMA, larger tile)
-CuTe WGMMA TMA    300.9 TFLOPS  ────────────┘
-       128×256
-                                    ┌─────────────────────
-cuBLAS TF32        319.7 TFLOPS ────┘  hand-written = 94% of cuBLAS
-```
-
----
-
-# GEMM — Results Table
-
-<style>
-table { font-size: 0.75em; }
-</style>
-
-<br>
-
-| Kernel | Key Technique | Time (ms) | TFLOPS | % cuBLAS |
-|---|---|---|---|---|
-| Naive | FP32 scalar, no tiling | 296.23 | 3.7 | 1.2% |
-| CuTe Simple MMA | TF32 `SM80_16x8x8`, gmem→reg | 26.04 | 42.2 | 13.2% |
-| CuTe SMEM k=8 | + `cp.async` to shared mem | 17.85 | 61.6 | 19.3% |
-| CuTe SMEM k=32 | + larger K-tile (4× less traffic) | 11.55 | 95.2 | 29.8% |
-| CuTe WGMMA | SM90 wgmma (smem descriptors) | 6.26 | 175.6 | 54.9% |
-| CuTe WGMMA Pipe | + double-buffered pipeline | 4.50 | 244.3 | 76.4% |
-| WGMMA Pipe+Swiz | + CTA swizzle for L2 reuse | 4.47 | 245.9 | 76.9% |
-| WGMMA TMA 128×128 | + TMA hardware loads, 3-stage | 4.62 | 238.2 | 74.5% |
-| **WGMMA TMA 128×256** | **+ larger tile (128×256)** | **3.65** | **300.9** | **94.1%** |
-| CUTLASS WS | Warp-specialized persistent | 4.80 | 228.9 | 71.6% |
-| cuBLAS FP32 | NVIDIA hand-tuned (no TC) | 30.97 | 35.5 | 11.1% |
-| **cuBLAS TF32** | **NVIDIA hand-tuned (TC)** | **3.44** | **319.7** | **100%** |
-
-<br>
-
-Best hand-written kernel achieves **94% of cuBLAS TF32** performance.
-
----
-
-# Key Takeaways
-
-<br>
-
-### Hopper has a deep pipeline
-29-cycle instruction latency (vs ~4 on Volta/Ampere). Need ≥32 independent
-operations in flight per scheduler to approach throughput.
-
-### Bandwidth requires massive parallelism
-A single SM can only drive ~67 GB/s of HBM bandwidth.
-All 132 SMs needed for 99%+ saturation (Little's Law).
-
-### L2 is fast but not free
-3.6 TB/s (4× HBM), 131 ns latency (6.5× L1).
-Also needs all SMs to saturate.
-
-### Transpose is pure memory
-Once bank conflicts are eliminated (+1 padding), all kernel variants
-hit 95% of HBM bandwidth — identical performance.
-
-### GEMM optimization is layered
-Each technique contributes a measurable speedup:
-tensor cores (11×) → shared memory (2.3×) → wgmma (1.8×) →
-pipelining (1.4×) → TMA + larger tiles (1.2×) = **81× over naive**.
