@@ -284,20 +284,20 @@ table { font-size: 0.75em; }
 
 <br>
 
-| Kernel | Key Technique | Time (ms) | TFLOPS | % of 494.7 |
+| Kernel | Key Technique | Time (ms) | TFLOPS | % cuBLAS |
 |---|---|---|---|---|
-| Naive | FP32 scalar, no tiling | 296.23 | 3.7 | — |
-| CuTe Simple MMA | TF32 `SM80_16x8x8`, gmem→reg | 26.04 | 42.2 | 8.5% |
-| CuTe SMEM k=8 | + `cp.async` to shared mem | 17.85 | 61.6 | 12.5% |
-| CuTe SMEM k=32 | + larger K-tile (4× less traffic) | 11.55 | 95.2 | 19.2% |
-| CuTe WGMMA | SM90 wgmma (smem descriptors) | 6.26 | 175.6 | 35.5% |
-| CuTe WGMMA Pipe | + double-buffered pipeline | 4.50 | 244.3 | 49.4% |
-| WGMMA Pipe+Swiz | + CTA swizzle for L2 reuse | 4.47 | 245.9 | 49.7% |
-| WGMMA TMA 128×128 | + TMA hardware loads, 3-stage | 4.62 | 238.2 | 48.1% |
-| **WGMMA TMA 128×256** | **+ larger tile (128×256)** | **3.65** | **300.9** | **60.8%** |
-| CUTLASS WS | Warp-specialized persistent | 4.80 | 228.9 | 46.3% |
-| cuBLAS FP32 | NVIDIA hand-tuned (no TC) | 30.97 | 35.5 | — |
-| **cuBLAS TF32** | **NVIDIA hand-tuned (TC)** | **3.44** | **319.7** | **64.6%** |
+| Naive | FP32 scalar, no tiling | 296.23 | 3.7 | 1.2% |
+| CuTe Simple MMA | TF32 `SM80_16x8x8`, gmem→reg | 26.04 | 42.2 | 13.2% |
+| CuTe SMEM k=8 | + `cp.async` to shared mem | 17.85 | 61.6 | 19.3% |
+| CuTe SMEM k=32 | + larger K-tile (4× less traffic) | 11.55 | 95.2 | 29.8% |
+| CuTe WGMMA | SM90 wgmma (smem descriptors) | 6.26 | 175.6 | 54.9% |
+| CuTe WGMMA Pipe | + double-buffered pipeline | 4.50 | 244.3 | 76.4% |
+| WGMMA Pipe+Swiz | + CTA swizzle for L2 reuse | 4.47 | 245.9 | 76.9% |
+| WGMMA TMA 128×128 | + TMA hardware loads, 3-stage | 4.62 | 238.2 | 74.5% |
+| **WGMMA TMA 128×256** | **+ larger tile (128×256)** | **3.65** | **300.9** | **94.1%** |
+| CUTLASS WS | Warp-specialized persistent | 4.80 | 228.9 | 71.6% |
+| cuBLAS FP32 | NVIDIA hand-tuned (no TC) | 30.97 | 35.5 | 11.1% |
+| **cuBLAS TF32** | **NVIDIA hand-tuned (TC)** | **3.44** | **319.7** | **100%** |
 
 <br>
 
