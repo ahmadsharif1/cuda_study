@@ -25,8 +25,6 @@ Measured at **1.98 GHz** boost clock, CUDA 12.8.
 
 # H100 SM Architecture
 
-<br>
-
 Each SM has **4 processing blocks** (sub-partitions), each with:
 
 - 1 warp scheduler → issues **1 warp-instruction per cycle** (32 threads)
@@ -34,11 +32,7 @@ Each SM has **4 processing blocks** (sub-partitions), each with:
 - 4th-gen Tensor Cores (TF32, FP16, INT8)
 - 256 KB register file per SM
 
-<br>
-
 **Full GPU:** 132 SMs × 1.98 GHz boost
-
-<br>
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -55,11 +49,14 @@ Each SM has **4 processing blocks** (sub-partitions), each with:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+<style scoped>
+pre { font-size: 0.65em; line-height: 1.2; margin-top: 0.5em; }
+li { line-height: 1.5; }
+</style>
+
 ---
 
 # Theoretical Peak Performance
-
-<br>
 
 | Resource | Per SM / cycle | Full GPU (132 SMs × 1.98 GHz) |
 |---|---|---|
@@ -67,8 +64,6 @@ Each SM has **4 processing blocks** (sub-partitions), each with:
 | TF32 Tensor Core (dense) | — | **494.7 TFLOPS** |
 | HBM3 bandwidth | — | 3.35 TB/s spec / **2.0 TB/s** measured |
 | L2 cache bandwidth | — | **3.6 TB/s** measured |
-
-<br>
 
 ### Memory hierarchy latency (measured)
 
@@ -79,19 +74,21 @@ Each SM has **4 processing blocks** (sub-partitions), each with:
 | L2 Cache | 131 ns (260 cycles) | 3.6 TB/s |
 | HBM / DRAM | 288 ns (571 cycles) | 2.0 TB/s |
 
+<style scoped>
+table { font-size: 0.78em; }
+th, td { padding: 4px 8px; }
+h3 { margin-top: 1em; margin-bottom: 0.3em; }
+</style>
+
 ---
 
 # Why Matrix Multiply?
-
-<br>
 
 ### Every neural network is built on GEMM
 
 - **Linear layers:** `y = Wx + b` → matrix multiply
 - **Attention:** `QKᵀ` and `(QKᵀ)V` → two matrix multiplies per head
 - **Convolutions:** im2col + GEMM is the standard implementation
-
-<br>
 
 ### The arithmetic intensity makes it interesting
 
@@ -107,19 +104,19 @@ For M=4096: AI ≈ 1024 FLOP/byte — firmly **compute-bound**.
 But reaching peak requires mastery of the full memory hierarchy:
 registers → shared memory → L2 → HBM, plus tensor cores, async copies, and hardware scheduling.
 
+<style scoped>
+pre { font-size: 0.75em; line-height: 1.3; }
+</style>
+
 ---
 
 # GEMM Problem Setup
-
-<br>
 
 ### Dimensions
 
 `A(4096 × 16384) × B(16384 × 8192) → C(4096 × 8192)`
 
 **1.1 × 10¹² FLOPs** per GEMM (1.1 TFLOP)
-
-<br>
 
 ### Progression
 
@@ -140,55 +137,97 @@ CuTe WGMMA TMA    300.9 TFLOPS  ────────────┘
 cuBLAS TF32        319.7 TFLOPS ────┘  hand-written = 94%
 ```
 
+<style scoped>
+pre { font-size: 0.6em; line-height: 1.25; }
+h3 { margin-top: 0.5em; margin-bottom: 0.2em; }
+</style>
+
 ---
 
-# Kernel 1: Naive FP32
+# Kernel 1: Naive FP32 — Code
 
-<br>
+Each thread computes **one element** of C with no data reuse:
 
-<div class="grid grid-cols-[1fr_1fr] gap-4">
-<div>
-
-### Approach
-Each thread computes **one element** of C:
 ```cpp
-for (int k = 0; k < K; k++)
-    C[row][col] += A[row][k] * B[k][col];
+__global__ void matmul_naive(const float* A, const float* B,
+                             float* C, int M, int K, int N) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    float sum = 0.0f;
+    for (int i = 0; i < K; i++) {
+        sum += A[row * K + i] * B[i * N + col];  // 2 loads, 1 FMA
+    }
+    C[row * N + col] = sum;
+}
+// Launch: block(16,16), grid((N+15)/16, (M+15)/16)
 ```
 
-### Performance
+- Every thread re-reads the **entire K-row** of A and K-column of B from global memory
+- No data reuse between threads — ~8 bytes per FLOP (need ~0.1)
+- B reads are coalesced within half-warp; A reads broadcast via L1
+
+---
+
+# Kernel 1: Naive FP32 — Diagram
+
+<img src="./svgs/01_naive.svg" class="mx-auto h-90" />
+
+---
+
+# Kernel 1: Naive FP32 — Performance
+
 | Metric | Value |
 |---|---|
 | Time | 296.2 ms |
 | TFLOPS | 3.7 |
 | % cuBLAS | 1.2% |
 
-### Bottleneck
-- Every thread re-reads **entire K-row** of A and K-column of B from global memory
-- No data reuse between threads
-- 97.6% memory throughput saturated — pure memory bound
+### Bottleneck: Pure Memory Bound
 
-</div>
-<div>
-<img src="./svgs/01_naive.svg" class="h-90" />
-</div>
-</div>
+- 97.6% memory throughput saturated
+- Each thread: K loads from A + K loads from B = **2K global loads** for K FMAs
+- 16× redundant loads for both A and B elements within a thread block
+- Ratio: 2 loads per 1 FMA = **0.5 compute:load** — need 100× more compute per byte
 
 ---
 
-# Kernel 2: CuTe Simple MMA — Tensor Cores
-
-<br>
-
-<div class="grid grid-cols-[1fr_1fr] gap-4">
-<div>
+# Kernel 2: CuTe Simple MMA — Code
 
 ### What changed
 - **TF32 tensor cores** via CuTe `SM80_16x8x8` MMA atom
 - 128 threads (4 warps), tiled 2×2 MMA layout
 - Still loads A,B directly from **global memory** (no shared memory)
 
-### Performance
+```cpp
+// Main loop: global memory → registers → tensor core MMA
+auto tCrA = thr_mma.partition_fragment_A(gA(_, _, 0));
+auto tCrB = thr_mma.partition_fragment_B(gB(_, _, 0));
+
+for (int k = 0; k < k_tile_max; k++) {
+    copy(thr_mma.partition_A(gA(_, _, k)), tCrA);  // global → regs
+    copy(thr_mma.partition_B(gB(_, _, k)), tCrB);  // global → regs
+    gemm(tiled_mma, tCrA, tCrB, tCrC);             // mma.sync
+}
+```
+
+Pipeline: `Global → Registers → MMA → Registers → Global`
+
+<style scoped>
+pre { font-size: 0.7em; line-height: 1.3; }
+</style>
+
+---
+
+# Kernel 2: CuTe Simple MMA — Diagram
+
+<img src="./svgs/06_cute_simple.svg" class="mx-auto h-90" />
+
+---
+
+# Kernel 2: CuTe Simple MMA — Performance
+
 | Metric | Value |
 |---|---|
 | Time | 26.0 ms |
@@ -196,67 +235,116 @@ for (int k = 0; k < K; k++)
 | % cuBLAS | 13.2% |
 | Speedup | **11× over naive** |
 
-### Why only 13%?
-- No shared memory → redundant global loads (3× vs smem)
-- L1 cache provides 67.6% hit rate (implicit reuse)
-- MMA partition layout ≠ memory-optimal layout → uncoalesced
+### Why only 13% of cuBLAS?
 
-</div>
-<div>
-<img src="./svgs/06_cute_simple.svg" class="h-90" />
-</div>
-</div>
+- No shared memory → redundant global loads (~3× vs smem version)
+- MMA partition layout ≠ memory-optimal layout → **uncoalesced access**
+- L1 cache provides 67.6% hit rate → implicit data reuse saves it from being worse
+- No `__syncthreads()` overhead — each thread operates independently
+
+The 11× speedup comes entirely from **tensor cores** (TF32 FMA throughput).
 
 ---
 
-# Kernel 3: CuTe SMEM — Shared Memory + cp.async
-
-<br>
-
-<div class="grid grid-cols-[1fr_1fr] gap-4">
-<div>
+# Kernel 3: CuTe SMEM — Code
 
 ### What changed
 - **`cp.async`**: global → shared memory (bypasses registers)
 - Cooperative tile loading: all 128 threads load A and B tiles
 - Each tile loaded **once**, reused by all MMA iterations
 
-### Performance (k=8 → k=32)
+```cpp
+for (int k = 0; k < k_tile_max; k++) {
+    // Phase 1: cooperative load global → shared (cp.async)
+    copy(copy_a, tAgA(_, _, _, k), tAsA);
+    copy(copy_b, tBgB(_, _, _, k), tBsB);
+    cp_async_fence();
+    cp_async_wait<0>();
+    __syncthreads();
+
+    // Phase 2: shared → registers → tensor core MMA
+    copy(tCsA, tCrA);
+    copy(tCsB, tCrB);
+    gemm(tiled_mma, tCrA, tCrB, tCrC);
+    __syncthreads();
+}
+```
+
+Pipeline: `Global →(cp.async)→ SMEM →(copy)→ Registers →(mma.sync)→ Registers`
+
+<style scoped>
+pre { font-size: 0.65em; line-height: 1.3; }
+</style>
+
+---
+
+# Kernel 3: CuTe SMEM — Diagram
+
+<img src="./svgs/07_cute_smem.svg" class="mx-auto h-90" />
+
+---
+
+# Kernel 3: CuTe SMEM — Performance
+
 | Variant | Time | TFLOPS | % cuBLAS |
 |---|---|---|---|
 | k=8 | 17.9 ms | 61.6 | 19.3% |
 | **k=32** | **11.6 ms** | **95.2** | **29.8%** |
 
-### Key insight
-Larger K-tile (32 vs 8) means **4× fewer global loads** per output tile.
-The smem→register copy is now the bottleneck — reads A,B from shared memory
-into register fragments before each MMA.
+<br>
 
-### Profile note
-1.5-way shared load bank conflicts from padded layout. 128 regs/thread.
+### Key insight: larger K-tile = fewer global loads
 
-</div>
-<div>
-<img src="./svgs/07_cute_smem.svg" class="h-90" />
-</div>
-</div>
+Larger K-tile (32 vs 8) means **4× fewer global loads** per output tile, because each tile is loaded once and reused across all MMA iterations within that tile.
+
+### Remaining bottleneck
+
+The **smem→register copy** is now the bottleneck — reading A,B from shared memory into register fragments before each MMA instruction. This copy step will be eliminated in the next kernel.
+
+Profile: 1.5-way shared load bank conflicts from padded layout. 128 regs/thread.
 
 ---
 
-# Kernel 4: CuTe WGMMA — SM90 Warpgroup MMA
-
-<br>
-
-<div class="grid grid-cols-[1fr_1fr] gap-4">
-<div>
+# Kernel 4: CuTe WGMMA — Code
 
 ### What changed
 - **SM90 `wgmma.mma_async`**: reads A,B **directly from shared memory**
 - No smem→register copy needed (hardware descriptor-based)
 - **Swizzled layouts** (SW128) eliminate bank conflicts entirely
-- 256 threads (8 warps = 1 warpgroup)
 
-### Performance
+```cpp
+for (int k = 0; k < k_tile_max; k++) {
+    copy(copy_a, tAgA(_, _, _, k), tAsA);  // global → swizzled smem
+    copy(copy_b, tBgB(_, _, _, k), tBsB);
+    cp_async_fence(); cp_async_wait<0>(); __syncthreads();
+
+    // wgmma reads A,B from smem descriptors — NO register copy!
+    warpgroup_fence_operand(tCrC);
+    warpgroup_arrive();
+    gemm(tiled_mma, tCsA, tCsB, tCrC);  // smem descriptors
+    warpgroup_commit_batch();
+    warpgroup_wait<0>();
+    warpgroup_fence_operand(tCrC);
+    __syncthreads();
+}
+```
+
+Pipeline: `Global →(cp.async)→ Swizzled SMEM →(wgmma descriptors)→ Registers`
+
+<style scoped>
+pre { font-size: 0.62em; line-height: 1.3; }
+</style>
+
+---
+
+# Kernel 4: CuTe WGMMA — Diagram
+
+<img src="./svgs/11_cute_wgmma.svg" class="mx-auto h-90" />
+
+---
+
+# Kernel 4: CuTe WGMMA — Performance
+
 | Metric | Value |
 |---|---|
 | Time | 6.3 ms |
@@ -265,33 +353,63 @@ into register fragments before each MMA.
 | Speedup | **1.8× over SMEM k=32** |
 
 ### Why the big jump?
-Eliminating the smem→register copy removes an entire pipeline stage.
-The hardware MMA unit reads directly from shared memory via descriptors,
-freeing register file bandwidth for accumulation.
 
-Zero bank conflicts (ncu confirmed).
+Eliminating the smem→register copy removes an entire pipeline stage. The hardware MMA unit reads directly from shared memory via descriptors, freeing register file bandwidth for accumulation.
 
-</div>
-<div>
-<img src="./svgs/11_cute_wgmma.svg" class="h-90" />
-</div>
-</div>
+- **MMA atom**: 64×128×8 = 65,536 FMAs (vs 16×8×8 = 1,024 for SM80)
+- **256 threads** (2 warp groups of 128), only C accumulator in registers
+- Zero bank conflicts (ncu confirmed) via SW128 swizzle
+
+<style scoped>
+table { font-size: 0.8em; }
+th, td { padding: 3px 8px; }
+h3 { margin-top: 0.5em; margin-bottom: 0.2em; }
+p { font-size: 0.85em; line-height: 1.4; margin: 0.3em 0; }
+li { font-size: 0.85em; }
+</style>
 
 ---
 
-# Kernel 5: WGMMA Pipe — Double-Buffered Pipeline
-
-<br>
-
-<div class="grid grid-cols-[1fr_1fr] gap-4">
-<div>
+# Kernel 5: WGMMA Pipe — Code
 
 ### What changed
 - **Double buffering**: 2× shared memory (buf0, buf1)
 - While MMA computes on buf0, `cp.async` fills buf1
 - Load latency **hidden** behind compute
 
-### Performance
+```cpp
+// Prologue: load k=0 into buffer 0
+copy(copy_a, tAgA(_, _, _, 0), tAsA0);
+copy(copy_b, tBgB(_, _, _, 0), tBsB0);
+cp_async_fence(); cp_async_wait<0>(); __syncthreads();
+
+for (int k = 0; k < k_max; k++) {
+    if (k + 1 < k_max) {  // load next tile into other buffer
+        copy(copy_a, tAgA(_, _, _, k+1), (k&1) ? tAsA0 : tAsA1);
+        copy(copy_b, tBgB(_, _, _, k+1), (k&1) ? tBsB0 : tBsB1);
+        cp_async_fence();
+    }
+    warpgroup_fence_operand(tCrC); warpgroup_arrive();
+    gemm(tiled_mma, (k&1)?tCsA1:tCsA0, (k&1)?tCsB1:tCsB0, tCrC);
+    warpgroup_commit_batch(); warpgroup_wait<0>();
+    // ... wait for next buffer, sync
+}
+```
+
+<style scoped>
+pre { font-size: 0.6em; line-height: 1.25; }
+</style>
+
+---
+
+# Kernel 5: WGMMA Pipe — Diagram
+
+<img src="./svgs/12_cute_wgmma_pipe.svg" class="mx-auto h-90" />
+
+---
+
+# Kernel 5: WGMMA Pipe — Performance
+
 | Metric | Value |
 |---|---|
 | Time | 4.5 ms |
@@ -300,58 +418,88 @@ Zero bank conflicts (ncu confirmed).
 | Speedup | **1.4× over WGMMA** |
 
 ### With CTA swizzle (+Swiz variant)
+
 Column-major tile scheduling for L2 cache reuse of B matrix.
 **245.9 TFLOPS (76.9%)** — marginal gain since L2 hit rate was already decent.
 
 ### Profile
+
 - 124 regs/thread, 25% occupancy
 - 65.5 KB dynamic shared memory (2× buffers)
+- Pipeline hides ~90% of load latency behind compute
 
-</div>
-<div>
-<img src="./svgs/12_cute_wgmma_pipe.svg" class="h-90" />
-</div>
-</div>
+<style scoped>
+table { font-size: 0.8em; }
+th, td { padding: 3px 8px; }
+h3 { margin-top: 0.5em; margin-bottom: 0.2em; }
+p { font-size: 0.85em; line-height: 1.4; margin: 0.3em 0; }
+li { font-size: 0.85em; }
+</style>
 
 ---
 
-# Kernel 6: WGMMA TMA — Hardware Tensor Memory Accelerator
-
-<br>
-
-<div class="grid grid-cols-[1fr_1fr] gap-4">
-<div>
+# Kernel 6: WGMMA TMA — Code
 
 ### What changed
 - **TMA** (Tensor Memory Accelerator): dedicated hardware for N-D copies
-- Replaces `cp.async` — no thread participation needed for loads
+- Replaces `cp.async` — **no thread participation** needed for loads
 - **3-stage pipeline** (vs 2-stage): deeper overlap
-- Fence-based synchronization (`arrive`/`wait` barriers)
 
-### Performance
+```cpp
+// Prologue: thread 0 fills all 3 pipeline stages via TMA
+for (int pipe = 0; pipe < K_PIPE_MAX; ++pipe) {
+    if ((warp_idx == 0) && lane_predicate) {
+        ProducerBarType::arrive_and_expect_tx(&producer_mbar[pipe], bytes);
+        copy(tma_a.with(producer_mbar[pipe]), tAgA(_, k), tAsA(_, pipe));
+        copy(tma_b.with(producer_mbar[pipe]), tBgB(_, k), tBsB(_, pipe));
+    }
+    ++k_tile;
+}
+// Main loop: all 256 threads compute, only thread 0 issues TMA loads
+while (k_tile_count > -K_PIPE_MAX) {
+    ProducerBarType::wait(&producer_mbar[read_pipe], phase);
+    warpgroup_arrive();
+    gemm(tiled_mma, tCrA(_, _, _, read_pipe), tCrB(_, _, _, read_pipe), tCrC);
+    // ... barrier-based producer-consumer sync
+}
+```
+
+<style scoped>
+pre { font-size: 0.58em; line-height: 1.25; }
+</style>
+
+---
+
+# Kernel 6: WGMMA TMA — Diagram
+
+<img src="./svgs/13_cute_wgmma_tma.svg" class="mx-auto h-90" />
+
+---
+
+# Kernel 6: WGMMA TMA — Performance
+
 | Variant | Time | TFLOPS | % cuBLAS |
 |---|---|---|---|
 | 128×128 tile | 4.6 ms | 238.2 | 74.5% |
 | **128×256 tile** | **3.65 ms** | **300.9** | **94.1%** |
 
 ### Why larger tile matters
-128×256 tile doubles work per CTA → better amortization of
-scheduling overhead and barrier synchronization costs.
-At 95.7% SM busy, nearly all compute is utilized.
+
+128×256 tile doubles work per CTA → better amortization of scheduling overhead and barrier synchronization costs. At 95.7% SM busy, nearly all compute is utilized.
+
+### TMA advantages
+
+- **1 thread** issues loads → 255 threads 100% dedicated to WGMMA compute
+- Hardware handles address calculation, bounds checking, swizzle
+- Fence-based barriers (`arrive`/`wait`) instead of `__syncthreads()`
 
 ### Best hand-written: **94.1% of cuBLAS TF32**
-
-</div>
-<div>
-<img src="./svgs/13_cute_wgmma_tma.svg" class="h-90" />
-</div>
-</div>
 
 ---
 
 # GEMM — Results Table
 
-<style>
+<style scoped>
 table { font-size: 0.62em; }
 th, td { padding: 2px 8px; }
 </style>
@@ -379,31 +527,21 @@ Best hand-written kernel: <strong>94% of cuBLAS TF32</strong> — an <strong>81�
 
 # What's Missing? The Last 6%
 
-<br>
+cuBLAS achieves 319.7 vs our 300.9 TFLOPS. What are we leaving on the table?
 
-### cuBLAS achieves 319.7 vs our 300.9 TFLOPS. What are we leaving on the table?
+**1. Warp Specialization** — Dedicate separate warps to **producing** (loading data) vs **consuming** (computing MMA). Avoids resource contention.
 
-<br>
+**2. Persistent Kernel + Tile Scheduling** — Launch exactly `num_SMs` blocks that loop over tiles. Stream-K decomposition for better load balancing.
 
-### 1. Warp Specialization
-Dedicate separate warps to **producing** (loading data) vs **consuming** (computing MMA).
-CUTLASS's warp-specialized persistent kernel does this — avoids resource contention.
+**3. More Pipeline Stages** — 4-5 stages instead of 3 for deeper overlap between TMA loads, smem→register copies, and MMA compute.
 
-### 2. Persistent Kernel + Tile Scheduling
-Launch exactly `num_SMs` blocks that loop over tiles. Combined with stream-K
-decomposition for better load balancing across SMs with uneven tile counts.
+**4. Epilogue Fusion + Register Optimization** — Fuse the C store with the last MMA iteration. Careful register allocation to avoid spills (our 128×256 kernel uses 90 regs).
 
-### 3. More Pipeline Stages
-4-5 stages instead of 3 — deeper overlap between TMA loads, smem→register copies,
-and MMA compute. More buffering hides longer latency chains.
+**5. Auto-Tuning** — Tile sizes, swizzle modes, pipeline depth, cluster size — cuBLAS searches a large configuration space per GPU and problem size.
 
-### 4. Epilogue Fusion + Register Optimization
-Fuse the C store with the last MMA iteration. Careful register allocation
-to avoid spills (our 128×256 kernel uses 90 regs — room for more).
-
-### 5. Auto-Tuning
-Tile sizes, swizzle modes, pipeline depth, cluster size — cuBLAS searches a large
-configuration space per GPU and problem size.
+<style scoped>
+p { font-size: 0.85em; line-height: 1.5; margin: 0.3em 0; }
+</style>
 
 ---
 layout: section
@@ -416,8 +554,6 @@ Micro-benchmarks: instruction latency, memory hierarchy, matrix transpose
 ---
 
 # Instruction Latency — Methodology
-
-<br>
 
 Single warp `<<<1, 32>>>`, tight loop with **serial dependency chains**.
 
@@ -442,16 +578,14 @@ __global__ void bench_float(int steps, long long* out) {
 - **ILP=N** → N independent chains fill the pipeline → measures **throughput**
 - Report: `(t1 - t0) / (steps × ILP)` = cycles per warp-instruction
 
+<style scoped>
+pre { font-size: 0.6em; line-height: 1.3; }
+li { font-size: 0.9em; }
+</style>
+
 ---
 
 # Instruction Latency — Results
-
-<style>
-table { font-size: 0.7em; }
-th, td { padding: 2px 6px; }
-</style>
-
-<br>
 
 | Instruction | ILP=1 | ILP=2 | ILP=4 | ILP=8 | ILP=16 | ILP=32 | ILP=64 | ILP=128 |
 |---|---|---|---|---|---|---|---|---|
@@ -469,11 +603,15 @@ th, td { padding: 2px 6px; }
 
 Cycles per warp-instruction. ILP=1 = pure latency; higher ILP → throughput.
 
+<style scoped>
+table { font-size: 0.6em; }
+th, td { padding: 2px 5px; }
+p { font-size: 0.85em; }
+</style>
+
 ---
 
 # Instruction Latency — Key Observations
-
-<br>
 
 ### Pipeline latency = 29 cycles
 
@@ -491,19 +629,20 @@ FADD/FMUL show 1.1 at ILP=128, not 1.0. The residual is **loop overhead**:
 | 64 | 1.20 | 1.2 |
 | 128 | 1.10 | 1.1 |
 
-### IADD: 0.5 cycles/op at ILP=64
+### IADD: 0.5 cycles/op at ILP=64 — **dual integer ALU pipes** per sub-partition
 
-Suggests **dual integer ALU pipes** per sub-partition. Degrades at ILP=128 (register bank conflicts).
+### SFU ops converge to ~9 cycles/op — multi-instruction IEEE sequences
 
-### SFU ops converge to ~9 cycles/op
-
-`__frcp_rn` / `__fsqrt_rn` barely scale — multi-instruction IEEE sequences with internal dependencies.
+<style scoped>
+h3 { font-size: 1.05em; margin-top: 0.5em; margin-bottom: 0.1em; }
+p { font-size: 0.82em; line-height: 1.4; margin: 0.2em 0; }
+table { font-size: 0.72em; }
+th, td { padding: 2px 8px; }
+</style>
 
 ---
 
 # Memory Latency
-
-<br>
 
 ### Methodology: Pointer Chasing
 
@@ -513,8 +652,6 @@ on the previous load's value**. Eliminates memory-level parallelism → pure lat
 - **L2 test:** `__ldcg` loads (bypass L1), warmup ensures L2-resident
 - **HBM test:** 256 MB working set, L2 flushed before measurement, cache-line strided (128B apart)
 
-<br>
-
 | Level | Working Set | Cycles | Nanoseconds | Ratio |
 |---|---|---|---|---|
 | **Shared Memory** | 8 KB | 28.6 | 14.4 ns | 1.0× |
@@ -522,20 +659,22 @@ on the previous load's value**. Eliminates memory-level parallelism → pure lat
 | **L2 Cache** | 4 MB | 259.9 | 131.3 ns | 9.1× |
 | **HBM / DRAM** | 256 MB | 570.5 | 288.1 ns | 20.0× |
 
-<br>
-
 L2 is **6.5× slower** than L1. HBM is only **2.2× slower** than L2 —
 the L2 is large (60 MB) and distant from the SMs.
+
+<style scoped>
+table { font-size: 0.72em; }
+th, td { padding: 3px 8px; }
+h3 { margin-top: 0.4em; margin-bottom: 0.2em; }
+p { font-size: 0.85em; margin: 0.3em 0; }
+li { font-size: 0.82em; }
+</style>
 
 ---
 
 # HBM Bandwidth Scaling
 
-<br>
-
 Copy 256 MB (`src → dst`), `float4` with UNROLL=4. Bandwidth = 2 × data / time.
-
-<br>
 
 | Configuration | Bandwidth | % of 2.0 TB/s |
 |---|---|---|
@@ -547,25 +686,25 @@ Copy 256 MB (`src → dst`), `float4` with UNROLL=4. Bandwidth = 2 × data / tim
 | 64 SMs | 1,722 GB/s | 86.1% |
 | **132 SMs (all)** | **1,992 GB/s** | **99.6%** |
 
-<br>
-
 ### Why so many SMs?
 
 **Little's Law:** `BW = outstanding_bytes / latency`
 
 With 288 ns HBM latency, each SM can only sustain ~67 GB/s.
-Need all 132 SMs to collectively keep enough loads in flight
-to saturate the HBM controllers.
+Need all 132 SMs to collectively keep enough loads in flight to saturate the HBM controllers.
+
+<style scoped>
+table { font-size: 0.7em; }
+th, td { padding: 2px 8px; }
+h3 { margin-top: 0.5em; margin-bottom: 0.2em; }
+p { font-size: 0.85em; margin: 0.3em 0; }
+</style>
 
 ---
 
 # L2 Bandwidth Scaling
 
-<br>
-
 16 MB working set, `__ldcg` / `__stcg` (bypass L1, operate on L2 directly).
-
-<br>
 
 | SMs | L2 Bandwidth | | SMs | L2 Bandwidth |
 |---|---|---|---|---|
@@ -573,28 +712,26 @@ to saturate the HBM controllers.
 | 4 | 64.8 GB/s | | 132 (all) | 3,223 GB/s |
 | 16 | 323 GB/s | | **528 blocks (4×)** | **3,574 GB/s** |
 
-<br>
-
 | Metric | Value |
 |---|---|
 | **L2 peak bandwidth** | 3.6 TB/s |
 | **HBM peak bandwidth** | 2.0 TB/s |
 | **L2 / HBM ratio** | **4.0×** |
 
-<br>
-
 L2 also needs all SMs to saturate — same Little's Law argument applies
 (L2 latency is 131 ns, still requires many outstanding requests).
+
+<style scoped>
+table { font-size: 0.72em; }
+th, td { padding: 3px 8px; }
+p { font-size: 0.85em; margin: 0.3em 0; }
+</style>
 
 ---
 
 # Matrix Transpose
 
-<br>
-
 32768 × 32768 float matrix (4 GB). All kernels use 32×32 shared memory tiles.
-
-<br>
 
 | Kernel | Approach | BW (GB/s) | Time (ms) | % HBM |
 |---|---|---|---|---|
@@ -603,8 +740,6 @@ L2 also needs all SMs to saturate — same Little's Law argument applies
 | **CuTe Scalar** | CuTe abstractions, scalar copies | 1,902 | 4.52 | **95%** |
 | **CuTe Vectorized** | CuTe with `float4` copy atoms | 1,890 | 4.55 | **94%** |
 
-<br>
-
 ### Why is Basic only 61%?
 
 No shared memory padding → **32-way bank conflicts** on the transposed read
@@ -612,3 +747,10 @@ No shared memory padding → **32-way bank conflicts** on the transposed read
 
 Adding **+1 padding** (`tile[32][33]`) shifts each row by one bank, eliminating
 conflicts entirely → jumps to 95% of HBM bandwidth.
+
+<style scoped>
+table { font-size: 0.68em; }
+th, td { padding: 3px 8px; }
+h3 { margin-top: 0.5em; margin-bottom: 0.2em; }
+p { font-size: 0.82em; margin: 0.3em 0; }
+</style>
