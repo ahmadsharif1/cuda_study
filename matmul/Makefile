@@ -10,7 +10,7 @@ CUDA_ARCH ?= sm_90a
 
 # Compiler flags
 CUTLASS_PATH = ../cutlass
-NVCC_FLAGS = -g -O3 -I$(CUTLASS_PATH)/include -I$(CUTLASS_PATH)/tools/util/include -arch=$(CUDA_ARCH) -std=c++17 -lcublas
+NVCC_FLAGS = -lineinfo -g -O3 -I$(CUTLASS_PATH)/include -I$(CUTLASS_PATH)/tools/util/include -arch=$(CUDA_ARCH) -std=c++17 -lcublas
 
 # Directories
 BIN_DIR = bin
